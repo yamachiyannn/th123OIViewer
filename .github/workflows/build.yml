@@ -1,0 +1,30 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore NuGet packages
+        run: nuget restore src/th123OpponentInfoViewer/th123OpponentInfoViewer.slnx
+
+      - name: Build
+        run: msbuild src/th123OpponentInfoViewer/th123OpponentInfoViewer.slnx /p:Configuration=Release
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: th123OpponentInfoViewer
+          path: src/th123OpponentInfoViewer/bin/Release/
