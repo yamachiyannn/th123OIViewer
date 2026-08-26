@@ -18,10 +18,10 @@ jobs:
         uses: microsoft/setup-msbuild@v2
 
       - name: Restore NuGet packages
-        run: nuget restore src/th123OpponentInfoViewer/th123OpponentInfoViewer.slnx
+        run: nuget restore src/th123OpponentInfoViewer.slnx
 
       - name: Build
-        run: msbuild src/th123OpponentInfoViewer/th123OpponentInfoViewer.slnx /p:Configuration=Release
+        run: msbuild src/th123OpponentInfoViewer.slnx /p:Configuration=Release
 
       - name: Upload build
         uses: actions/upload-artifact@v4
