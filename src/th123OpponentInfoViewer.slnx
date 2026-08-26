@@ -1,0 +1,9 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="th123OpponentInfoViewer/th123OpponentInfoViewer.csproj" Id="9084e65e-9b56-406c-b764-9323a4e84116">
+    <Platform Solution="*|x86" Project="x86" />
+  </Project>
+</Solution>
