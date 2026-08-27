@@ -15,6 +15,8 @@ namespace th123OpponentInfoViewer
 
         public bool DefaultShowIpPort { get; private set; }
 
+        public bool DefaultCheckMatchRecord { get; private set; }
+
         /*
          * exeが入っているフォルダ。
          *
@@ -83,6 +85,9 @@ namespace th123OpponentInfoViewer
                 true;
 
             DefaultShowIpPort =
+                true;
+
+            DefaultCheckMatchRecord =
                 true;
 
             Load();
@@ -239,6 +244,21 @@ namespace th123OpponentInfoViewer
                             out valueBool))
                         {
                             DefaultShowIpPort =
+                                valueBool;
+                        }
+                    }
+                    else if (string.Equals(
+                        key,
+                        "DefaultCheckMatchRecord",
+                        StringComparison.OrdinalIgnoreCase))
+                    {
+                        bool valueBool;
+
+                        if (bool.TryParse(
+                            value,
+                            out valueBool))
+                        {
+                            DefaultCheckMatchRecord =
                                 valueBool;
                         }
                     }

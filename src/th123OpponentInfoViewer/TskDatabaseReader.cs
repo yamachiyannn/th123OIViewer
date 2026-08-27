@@ -590,6 +590,25 @@ namespace th123OpponentInfoViewer
 
             /*
              * --------------------------------
+             * ラウンド情報取得確認
+             * --------------------------------
+             *
+             * p1win / p2win のどちらかに
+             * 1以上の値が存在すれば、
+             * ラウンド情報は取得できている。
+             *
+             * p1win=0 / p2win=2
+             * のような「一度も勝っていない相手」は
+             * 正常なラウンド情報なので警告しない。
+             */
+            stats.IsHasUnrecordedWinningRound =
+                records.Count > 0 &&
+                records.All(
+                    x => x.P1RoundCount == 0 &&
+                         x.P2RoundCount == 2);
+
+            /*
+             * --------------------------------
              * 初対戦
              * --------------------------------
              */
@@ -1053,6 +1072,12 @@ namespace th123OpponentInfoViewer
          * 自分側の勝利数。
          */
         public int TotalLosses { get; set; }
+
+        /*
+         * ラウンド未取得用。
+         */
+        public bool IsHasUnrecordedWinningRound { get; set; }
+
 
         public int Last30Matches { get; set; }
 

@@ -99,10 +99,13 @@ namespace th123OpponentInfoViewer
          *
          * DefaultCheckAsobby
          * DefaultShowIpPort
+         * matchRecordCheckEnabled
          */
         private bool asobbyCheckEnabled;
 
         private bool ipPortEnabled;
+
+        private bool matchRecordCheckEnabled;
 
         /*
          * --------------------------------
@@ -118,6 +121,8 @@ namespace th123OpponentInfoViewer
         private ToolStripMenuItem asobbyCheckMenu;
 
         private ToolStripMenuItem ipPortMenu;
+
+        private ToolStripMenuItem matchRecordCheckMenu;
 
         /*
          * --------------------------------
@@ -200,6 +205,9 @@ namespace th123OpponentInfoViewer
 
             ipPortEnabled =
                 config.DefaultShowIpPort;
+
+            matchRecordCheckEnabled =
+                config.DefaultCheckMatchRecord;
 
             /*
              * --------------------------------
@@ -462,6 +470,61 @@ namespace th123OpponentInfoViewer
             menu.Items.Add(
                 ipPortMenu);
 
+            /*
+             * --------------------------------
+             * 対戦記録追加確認
+             * --------------------------------
+             */
+            matchRecordCheckMenu =
+                new ToolStripMenuItem(
+                    "対戦記録追加確認");
+
+            /*
+             * CheckOnClickは使用しない。
+             */
+            matchRecordCheckMenu.CheckOnClick =
+                false;
+
+            /*
+             * INIの初期値をそのまま
+             * メニューのチェック状態へ反映。
+             */
+            matchRecordCheckMenu.Checked =
+                matchRecordCheckEnabled;
+
+            matchRecordCheckMenu.Click +=
+                delegate
+                {
+                    matchRecordCheckEnabled =
+                        !matchRecordCheckEnabled;
+
+                    matchRecordCheckMenu.Checked =
+                        matchRecordCheckEnabled;
+
+                    /*
+                     * OFFにした場合は、
+                     * 現在進行中の記録確認を解除。
+                     */
+                    if (!matchRecordCheckEnabled)
+                    {
+                        checkingMatchRecord =
+                            false;
+
+                        matchRecordWarning =
+                            false;
+
+                        matchRecordWarningSoundActive =
+                            false;
+
+                        HideEscButton();
+
+                        RestoreNormalColors();
+                    }
+                };
+
+            menu.Items.Add(
+                matchRecordCheckMenu);
+
             menu.Items.Add(
                 new ToolStripSeparator());
 
@@ -658,12 +721,11 @@ namespace th123OpponentInfoViewer
         {
             try
             {
-                using (ProfileSearchForm form =
+                ProfileSearchForm form =
                     new ProfileSearchForm(
-                        tskDatabase))
-                {
-                    form.ShowDialog(this);
-                }
+                        tskDatabase);
+
+                form.Show();
             }
             catch (Exception ex)
             {
@@ -754,7 +816,8 @@ namespace th123OpponentInfoViewer
              * DB記録追加確認
              * -------------------------
              */
-            if (checkingMatchRecord)
+            if (matchRecordCheckEnabled &&
+                checkingMatchRecord)
             {
                 if (DateTime.Now >=
                     matchRecordCheckAt)
@@ -896,7 +959,31 @@ namespace th123OpponentInfoViewer
                 (info.SceneId == 8 ||
                  info.SceneId == 9))
             {
-                if (!escEndDeclared)
+                /*
+                 * 対戦記録追加確認がOFFの場合。
+                 *
+                 * DB件数の確認を行わず、
+                 * ESC終了申告も不要。
+                 */
+                if (!matchRecordCheckEnabled)
+                {
+                    checkingMatchRecord =
+                        false;
+
+                    matchRecordWarning =
+                        false;
+
+                    matchRecordWarningSoundActive =
+                        false;
+
+                    escEndDeclared =
+                        false;
+
+                    HideEscButton();
+
+                    RestoreNormalColors();
+                }
+                else if (!escEndDeclared)
                 {
                     if (matchRecordCountBefore >= 0)
                     {
@@ -1406,13 +1493,15 @@ namespace th123OpponentInfoViewer
                     CalculateWinRate(
                         stats.LastMonthLosses,
                         stats.LastMonthWins)) +
-                "\r\n\r\n";
+                "\r\n";
 
-            if (stats.TotalLosses == 0)
+            if (stats.IsHasUnrecordedWinningRound)
             {
                 text +=
                     "[ラウンド未取得]\r\n";
             }
+
+            text += "\r\n";
 
             if (stats.FirstMatchDate !=
                 DateTime.MinValue)
@@ -1601,7 +1690,7 @@ namespace th123OpponentInfoViewer
                 stats.TotalMatches +
                 "戦";
 
-            if (stats.TotalLosses == 0)
+            if (!stats.IsHasUnrecordedWinningRound)
             {
                 text +=
                     "\r\n[ラウンド未取得]";

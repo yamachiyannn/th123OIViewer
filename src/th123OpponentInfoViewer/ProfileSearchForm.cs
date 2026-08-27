@@ -1012,6 +1012,12 @@ namespace th123OpponentInfoViewer
                 bool hasAnyRecords =
                     false;
 
+                bool hasUnrecordedWinningRound =
+                    false;
+
+                bool allProfilesHaveUnrecordedWinningRound =
+                    true;
+
                 foreach (string profileName in
                     profileNames)
                 {
@@ -1026,6 +1032,18 @@ namespace th123OpponentInfoViewer
 
                     hasAnyRecords =
                         true;
+
+                    if (stats.IsHasUnrecordedWinningRound)
+                    {
+                        hasUnrecordedWinningRound =
+                            true;
+                    }
+
+                    if (!stats.IsHasUnrecordedWinningRound)
+                    {
+                        allProfilesHaveUnrecordedWinningRound =
+                            false;
+                    }
 
                     totalMatches +=
                         stats.TotalMatches;
@@ -1198,14 +1216,23 @@ namespace th123OpponentInfoViewer
                         CalculateWinRate(
                             totalSelfWins,
                             totalOpponentWins)) +
-                    "\r\n\r\n";
+                    "\r\n";
 
-                /*
-                 * --------------------------------
-                 * 最近の戦績
-                 * --------------------------------
-                 */
-                text +=
+                if (hasAnyRecords &&
+                    allProfilesHaveUnrecordedWinningRound)
+                {
+                    text +=
+                        "[ラウンド未取得]\r\n";
+                }
+
+                text += "\r\n";
+
+                    /*
+                     * --------------------------------
+                     * 最近の戦績
+                     * --------------------------------
+                     */
+                    text +=
                     "【最近の戦績】\r\n";
 
                 text +=
