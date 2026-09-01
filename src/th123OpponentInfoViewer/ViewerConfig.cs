@@ -17,6 +17,8 @@ namespace th123OpponentInfoViewer
 
         public bool DefaultCheckMatchRecord { get; private set; }
 
+        public bool DefaultShowOverlay { get; private set; }
+
         /*
          * exeが入っているフォルダ。
          *
@@ -88,6 +90,9 @@ namespace th123OpponentInfoViewer
                 true;
 
             DefaultCheckMatchRecord =
+                true;
+
+            DefaultShowOverlay =
                 true;
 
             Load();
@@ -259,6 +264,21 @@ namespace th123OpponentInfoViewer
                             out valueBool))
                         {
                             DefaultCheckMatchRecord =
+                                valueBool;
+                        }
+                    }
+                    else if (string.Equals(
+                        key,
+                        "DefaultShowOverlay",
+                        StringComparison.OrdinalIgnoreCase))
+                    {
+                        bool valueBool;
+
+                        if (bool.TryParse(
+                            value,
+                            out valueBool))
+                        {
+                            DefaultShowOverlay =
                                 valueBool;
                         }
                     }

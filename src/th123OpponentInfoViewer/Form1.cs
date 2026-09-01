@@ -16,6 +16,29 @@ namespace th123OpponentInfoViewer
 
         private readonly TskDatabaseReader tskDatabase;
 
+        /*
+         * --------------------------------
+         * CombinedPlayers.db
+         * --------------------------------
+         *
+         * Default.dbとは別管理。
+         */
+        private readonly CombinedPlayersDatabase combinedPlayersDatabase;
+
+        /*
+         * --------------------------------
+         * Overlay
+         * --------------------------------
+         */
+        private readonly OverlayForm overlayForm;
+
+        /*
+         * --------------------------------
+         * リバサルミネスカウンター
+         * --------------------------------
+         */
+        private ReversalLuminousStrikeCounter reversalLuminousStrikeCounter;
+
         private uint previousSceneId = 0;
 
         /*
@@ -100,12 +123,15 @@ namespace th123OpponentInfoViewer
          * DefaultCheckAsobby
          * DefaultShowIpPort
          * matchRecordCheckEnabled
+         * overlayEnabled
          */
         private bool asobbyCheckEnabled;
 
         private bool ipPortEnabled;
 
         private bool matchRecordCheckEnabled;
+
+        private bool overlayEnabled;
 
         /*
          * --------------------------------
@@ -123,6 +149,8 @@ namespace th123OpponentInfoViewer
         private ToolStripMenuItem ipPortMenu;
 
         private ToolStripMenuItem matchRecordCheckMenu;
+
+        private ToolStripMenuItem overlayMenu;
 
         /*
          * --------------------------------
@@ -208,6 +236,34 @@ namespace th123OpponentInfoViewer
 
             matchRecordCheckEnabled =
                 config.DefaultCheckMatchRecord;
+
+            overlayEnabled =
+                config.DefaultShowOverlay;
+
+            /*
+             * --------------------------------
+             * CombinedPlayers.db
+             * --------------------------------
+             *
+             * Default.dbとは別DB。
+             *
+             * DBが存在しない場合は
+             * CombinedPlayersDatabase側で
+             * 自動作成する。
+             */
+            combinedPlayersDatabase =
+                new CombinedPlayersDatabase();
+
+            /*
+             * --------------------------------
+             * Overlay
+             * --------------------------------
+             *
+             * Designerを使用せず
+             * 動的に生成。
+             */
+            overlayForm =
+                new OverlayForm();
 
             /*
              * --------------------------------
@@ -307,6 +363,46 @@ namespace th123OpponentInfoViewer
 
         /*
          * --------------------------------
+         * フォーム終了
+         * --------------------------------
+         *
+         * Overlayが残らないように
+         * 明示的に閉じる。
+         */
+        protected override void OnFormClosing(
+            FormClosingEventArgs e)
+        {
+            try
+            {
+                if (overlayForm != null)
+                {
+                    overlayForm.HideOverlay();
+
+                    overlayForm.Dispose();
+                }
+                if (reversalLuminousStrikeCounter != null)
+                {
+                    try
+                    {
+                        reversalLuminousStrikeCounter.Close();
+                    }
+                    catch
+                    {
+                    }
+
+                    reversalLuminousStrikeCounter =
+                        null;
+                }
+            }
+            catch
+            {
+            }
+
+            base.OnFormClosing(e);
+        }
+
+        /*
+         * --------------------------------
          * 右クリックメニュー作成
          * --------------------------------
          *
@@ -319,8 +415,10 @@ namespace th123OpponentInfoViewer
          *
          * asobby起動確認
          * IP:Port
+         * 対戦記録追加確認
          *
-         * プロファイル検索
+         * プレイヤー管理
+         * プレイヤー検索
          */
         private void CreateOutputContextMenu()
         {
@@ -401,7 +499,7 @@ namespace th123OpponentInfoViewer
              */
             asobbyCheckMenu =
                 new ToolStripMenuItem(
-                    "asobby起動確認");
+                    "asobby未起動時警告");
 
             /*
              * CheckOnClickは使用しない。
@@ -440,7 +538,7 @@ namespace th123OpponentInfoViewer
              */
             ipPortMenu =
                 new ToolStripMenuItem(
-                    "IP:Port");
+                    "IP:Port欄有効化");
 
             /*
              * CheckOnClickは使用しない。
@@ -477,7 +575,7 @@ namespace th123OpponentInfoViewer
              */
             matchRecordCheckMenu =
                 new ToolStripMenuItem(
-                    "対戦記録追加確認");
+                    "記録未追加時警告");
 
             /*
              * CheckOnClickは使用しない。
@@ -525,32 +623,208 @@ namespace th123OpponentInfoViewer
             menu.Items.Add(
                 matchRecordCheckMenu);
 
+            /*
+             * --------------------------------
+             * オーバーレイ
+             * --------------------------------
+             */
+            overlayMenu =
+                new ToolStripMenuItem(
+                    "オーバーレイ表示");
+
+            /*
+             * CheckOnClickは使用しない。
+             */
+            overlayMenu.CheckOnClick =
+                false;
+
+            /*
+             * INIの初期値をそのまま
+             * メニューのチェック状態へ反映。
+             */
+            overlayMenu.Checked =
+                overlayEnabled;
+
+            overlayMenu.Click +=
+                delegate
+                {
+                    overlayEnabled =
+                        !overlayEnabled;
+
+                    overlayMenu.Checked =
+                        overlayEnabled;
+
+                    /*
+                     * OFFにした場合は
+                     * 現在表示中のOverlayを隠す。
+                     */
+                    if (!overlayEnabled)
+                    {
+                        HideOverlay();
+                    }
+                };
+
+            menu.Items.Add(
+                overlayMenu);
+
             menu.Items.Add(
                 new ToolStripSeparator());
 
             /*
              * --------------------------------
-             * プロファイル検索
+             * プレイヤー管理
              * --------------------------------
              */
-            ToolStripMenuItem searchProfile =
+            ToolStripMenuItem managePlayers =
                 new ToolStripMenuItem(
-                    "プロファイル検索");
+                    "プレイヤー管理");
 
-            searchProfile.Click +=
+            managePlayers.Click +=
+                delegate
+                {
+                    OpenPlayerManagement();
+                };
+
+            menu.Items.Add(
+                managePlayers);
+
+            /*
+             * --------------------------------
+             * プレイヤー検索
+             * --------------------------------
+             */
+            ToolStripMenuItem searchPlayer =
+                new ToolStripMenuItem(
+                    "プレイヤー検索");
+
+            searchPlayer.Click +=
                 delegate
                 {
                     OpenProfileSearch();
                 };
 
             menu.Items.Add(
-                searchProfile);
+                searchPlayer);
+
+            /*
+             * --------------------------------
+             * リバサルミネスカウンター
+             * --------------------------------
+             */
+            ToolStripMenuItem reversalLuminousCounter =
+                new ToolStripMenuItem(
+                    "リバサルミネスカウンター");
+
+            reversalLuminousCounter.Click +=
+                delegate
+                {
+                    OpenReversalLuminousStrikeCounter();
+                };
+
+            menu.Items.Add(
+                reversalLuminousCounter);
 
             /*
              * txtOutputへ設定。
              */
             txtOutput.ContextMenuStrip =
                 menu;
+        }
+
+        /*
+         * --------------------------------
+         * プレイヤー管理画面
+         * --------------------------------
+         */
+        private void OpenPlayerManagement()
+        {
+            try
+            {
+                PlayerManagementForm form =
+                    new PlayerManagementForm(
+                        combinedPlayersDatabase,
+                        tskDatabase);
+
+                form.Show(this);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "プレイヤー管理を開けませんでした。\r\n\r\n" +
+                    ex.Message,
+                    "エラー",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+        }
+
+        /*
+         * --------------------------------
+         * プレイヤー検索画面
+         * --------------------------------
+         *
+         * 既存クラス名は
+         * ProfileSearchFormのまま使用する。
+         */
+        private void OpenProfileSearch()
+        {
+            try
+            {
+                ProfileSearchForm form =
+                    new ProfileSearchForm(
+                        tskDatabase,
+                        combinedPlayersDatabase);
+
+                form.Show();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "プレイヤー検索を開けませんでした。\r\n\r\n" +
+                    ex.Message,
+                    "エラー",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+        }
+
+        /*
+         * --------------------------------
+         * リバサルミネスカウンター画面
+         * --------------------------------
+         */
+        private void OpenReversalLuminousStrikeCounter()
+        {
+            try
+            {
+                if (reversalLuminousStrikeCounter != null &&
+                    !reversalLuminousStrikeCounter.IsDisposed)
+                {
+                    reversalLuminousStrikeCounter.Activate();
+                    return;
+                }
+
+                reversalLuminousStrikeCounter =
+                    new ReversalLuminousStrikeCounter();
+
+                reversalLuminousStrikeCounter.FormClosed +=
+                    delegate
+                    {
+                        reversalLuminousStrikeCounter =
+                            null;
+                    };
+
+                reversalLuminousStrikeCounter.Show();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "リバサルミネスカウンターを開けませんでした。\r\n\r\n" +
+                    ex.Message,
+                    "エラー",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
         }
 
         /*
@@ -695,9 +969,6 @@ namespace th123OpponentInfoViewer
                 checkingMatchRecord =
                     false;
 
-                matchRecordCountBefore =
-                    -1;
-
                 RestoreNormalColors();
 
                 HideEscButton();
@@ -706,35 +977,8 @@ namespace th123OpponentInfoViewer
                     AppendAsobbyWarning(
                         CreateWaitingText() +
                         "\r\n\r\n" +
-                        "ESC終了として処理しました。\r\n\r\n" +
-                        "DBの再読み込みに失敗しました。\r\n" +
+                        "ESC終了として処理しました。\r\n"+
                         ex.Message);
-            }
-        }
-
-        /*
-         * --------------------------------
-         * プロファイル検索画面
-         * --------------------------------
-         */
-        private void OpenProfileSearch()
-        {
-            try
-            {
-                ProfileSearchForm form =
-                    new ProfileSearchForm(
-                        tskDatabase);
-
-                form.Show();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    "プロファイル検索を開けませんでした。\r\n\r\n" +
-                    ex.Message,
-                    "エラー",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
             }
         }
 
@@ -796,6 +1040,12 @@ namespace th123OpponentInfoViewer
                 HideEscButton();
 
                 ShowTskNotRunningWarning();
+
+                /*
+                 * tskが落ちた場合は
+                 * Overlayも非表示。
+                 */
+                HideOverlay();
 
                 previousSceneId =
                     0;
@@ -865,6 +1115,22 @@ namespace th123OpponentInfoViewer
              */
             OpponentInfo info =
                 detector.GetOpponent();
+
+            /*
+             * --------------------------------
+             * リバサルミネスカウンターへ
+             * 現在のゲーム情報を渡す
+             * --------------------------------
+             */
+            if (reversalLuminousStrikeCounter != null &&
+                !reversalLuminousStrikeCounter.IsDisposed)
+            {
+                reversalLuminousStrikeCounter.UpdateGameState(
+                    info.SceneId,
+                    info.ProfileName,
+                    info.Player1ProfileName,
+                    info.Player2ProfileName);
+            }
 
             /*
              * -------------------------
@@ -1036,6 +1302,16 @@ namespace th123OpponentInfoViewer
                 ShowWatchingInfo(
                     info);
 
+                /*
+                 * Main画面と同じ内容を
+                 * Overlayへ渡す。
+                 *
+                 * SceneID 15の横方向化は
+                 * OverlayForm側で行う。
+                 */
+                UpdateOverlay(
+                    info.SceneId);
+
                 return;
             }
 
@@ -1052,6 +1328,13 @@ namespace th123OpponentInfoViewer
                 ShowOpponentInfo(
                     info);
 
+                /*
+                 * Overlay対象は8～11のみ。
+                 * 13～14ではOverlayは非表示。
+                 */
+                UpdateOverlay(
+                    info.SceneId);
+
                 return;
             }
 
@@ -1063,6 +1346,67 @@ namespace th123OpponentInfoViewer
             txtOutput.Text =
                 AppendAsobbyWarning(
                     CreateWaitingText());
+
+            HideOverlay();
+        }
+
+        /*
+         * --------------------------------
+         * Overlay更新
+         * --------------------------------
+         *
+         * Main画面に現在表示されている
+         * txtOutput.Textをそのまま渡す。
+         *
+         * 表示内容を二重実装しない。
+         */
+        private void UpdateOverlay(
+            uint sceneId)
+        {
+            if (overlayForm == null)
+            {
+                return;
+            }
+
+            if (sceneId != 8 &&
+                sceneId != 9 &&
+                sceneId != 10 &&
+                sceneId != 11 &&
+                sceneId != 12 &&
+                sceneId != 15)
+            {
+                HideOverlay();
+                return;
+            }
+
+            try
+            {
+                overlayForm.SetText(
+                    txtOutput.Text,
+                    sceneId);
+            }
+            catch
+            {
+            }
+        }
+
+        /*
+         * Overlay非表示。
+         */
+        private void HideOverlay()
+        {
+            if (overlayForm == null)
+            {
+                return;
+            }
+
+            try
+            {
+                overlayForm.HideOverlay();
+            }
+            catch
+            {
+            }
         }
 
         /*
@@ -1523,21 +1867,21 @@ namespace th123OpponentInfoViewer
                     "\r\n";
             }
 
-            if (stats.LastWinDate.HasValue)
+            if (stats.LastLossDate.HasValue)
             {
                 text +=
                     "最後に勝った : " +
                     FormatDate(
-                        stats.LastWinDate.Value) +
+                        stats.LastLossDate.Value) +
                     "\r\n";
             }
 
-            if (stats.LastLossDate.HasValue)
+            if (stats.LastWinDate.HasValue)
             {
                 text +=
                     "最後に負けた : " +
                     FormatDate(
-                        stats.LastLossDate.Value);
+                        stats.LastWinDate.Value);
             }
 
             txtOutput.Text =
@@ -1690,7 +2034,12 @@ namespace th123OpponentInfoViewer
                 stats.TotalMatches +
                 "戦";
 
-            if (!stats.IsHasUnrecordedWinningRound)
+            /*
+             * 既存仕様：
+             * ラウンド未取得フラグの扱いは
+             * 変更しない。
+             */
+            if (stats.IsHasUnrecordedWinningRound)
             {
                 text +=
                     "\r\n[ラウンド未取得]";
@@ -1857,7 +2206,9 @@ namespace th123OpponentInfoViewer
         private string FormatDate(
             DateTime dateTime)
         {
-            return dateTime.ToString(
+            return
+                dateTime.AddHours(-9)
+                .ToString(
                 "yyyy/MM/dd HH:mm:ss");
         }
 

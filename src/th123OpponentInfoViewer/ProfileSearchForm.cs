@@ -6,77 +6,91 @@ using System.Windows.Forms;
 
 namespace th123OpponentInfoViewer
 {
+    /*
+    * ============================================================
+    * プレイヤー検索
+    * ============================================================
+    *
+    * 左：
+    *   Default.db に存在する全プロファイル。
+    *
+    *   プレイヤー登録済み：
+    *       プレイヤー名を表示。
+    *
+    *   プレイヤー名が未設定：
+    *       プロファイル名を表示。
+    *
+    *   未登録プロファイル：
+    *       プロファイル名を表示。
+    *
+    * 検索：
+    *   ・プレイヤー名
+    *   ・所属している全プロファイル
+    *
+    *   のいずれかに検索文字列が含まれていれば表示。
+    *
+    * 右：
+    *   選択したプレイヤー / プロファイルの戦績。
+    *
+    * 「代表プロファイルのみの戦績を表示」
+    *
+    *   OFF：
+    *       プレイヤーに所属する全プロファイルを統合。
+    *
+    *   ON：
+    *       代表プロファイルのみ。
+    *
+    * 戦績：
+    *   TskDatabaseReader は P2 視点のデータを返すため、
+    *   この画面では自分視点へ変換する。
+    *
+    *   P2 Wins   → 自分の Losses
+    *   P2 Losses → 自分の Wins
+    *
+    * Designerは使用しない。
+    * .NET Framework 4.7.2対応。
+    */
     public class ProfileSearchForm : Form
     {
+        /*
+        * --------------------------------------------------------
+        * DB
+        * --------------------------------------------------------
+        */
         private readonly TskDatabaseReader database;
 
-        /*
-         * --------------------------------
-         * ViewerConfig
-         * --------------------------------
-         */
+        private readonly CombinedPlayersDatabase combinedDatabase;
+
         private readonly ViewerConfig config;
 
         /*
-         * --------------------------------
-         * コントロール
-         * --------------------------------
-         */
-
-        /*
-         * 左側の検索フォーム。
+         * --------------------------------------------------------
+         * UI
+         * --------------------------------------------------------
          */
         private TextBox txtSearch;
 
-        /*
-         * 単数 / 複数 切替ボタン。
-         */
-        private Button btnMode;
+        private ListBox lstPlayers;
 
-        /*
-         * 上側リスト。
-         *
-         * 未選択かつ、
-         * 現在の検索条件に該当する
-         * プロファイルを表示。
-         */
-        private ListBox lstAvailable;
+        private CheckBox chkRepresentativeOnly;
 
-        /*
-         * 下側リスト。
-         *
-         * 選択済みプロファイルを保持。
-         */
-        private ListBox lstSelected;
-
-        /*
-         * 右側の詳細表示。
-         */
         private TextBox txtResult;
 
-        /*
-         * 詳細表示の右クリックメニュー。
-         */
         private ContextMenuStrip resultContextMenu;
 
         /*
-         * --------------------------------
-         * フォントサイズ
-         * --------------------------------
-         *
-         * 初期値はViewerConfigから取得。
-         *
-         * 右クリックメニューで変更した場合は
-         * この値を上書きする。
+         * --------------------------------------------------------
+         * フォント
+         * --------------------------------------------------------
          */
         private float resultFontSize;
 
         private float listFontSize;
 
         /*
-         * --------------------------------
-         * レイアウト固定値
-         * --------------------------------
+         * --------------------------------------------------------
+         * レイアウト定数
+         * --------------------------------------------------------
          */
         private const int LEFT_MARGIN = 15;
 
@@ -90,60 +104,53 @@ namespace th123OpponentInfoViewer
 
         private const int LIST_TOP = 55;
 
+        private const int RESULT_TOP = 55;
+
         private const int BOTTOM_MARGIN = 15;
 
         /*
-         * --------------------------------
-         * プロファイルデータ
-         * --------------------------------
-         */
-
-        /*
-         * 全プロファイル一覧。
+         * --------------------------------------------------------
+         * データ
+         * --------------------------------------------------------
          */
         private List<string> allProfileNames =
             new List<string>();
 
-        /*
-         * 現在選択済みのプロファイル。
-         *
-         * 検索条件とは独立して保持する。
-         */
-        private List<string> selectedProfileNames =
-            new List<string>();
+        private List<CombinedPlayer> allPlayers =
+            new List<CombinedPlayer>();
+
+        private List<SearchPlayerItem> searchItems =
+            new List<SearchPlayerItem>();
+
+        private bool updatingList;
 
         /*
-         * true  = 複数モード
-         * false = 単数モード
-         *
-         * デフォルトは単数。
-         */
-        private bool multipleMode =
-            false;
-
-        /*
-         * リスト更新中か。
-         */
-        private bool updatingLists =
-            false;
-
-        /*
-         * --------------------------------
+         * ============================================================
          * コンストラクタ
-         * --------------------------------
+         * ============================================================
          */
         public ProfileSearchForm(
-            TskDatabaseReader database)
+            TskDatabaseReader database,
+            CombinedPlayersDatabase combinedDatabase)
         {
+            if (database == null)
+            {
+                throw new ArgumentNullException(
+                    "database");
+            }
+
+            if (combinedDatabase == null)
+            {
+                throw new ArgumentNullException(
+                    "combinedDatabase");
+            }
+
             this.database =
                 database;
 
-            /*
-             * ViewerConfigを読み込む。
-             *
-             * ProfileSearchFontSizeは
-             * iniの値が使用される。
-             */
+            this.combinedDatabase =
+                combinedDatabase;
+
             config =
                 new ViewerConfig();
 
@@ -155,41 +162,67 @@ namespace th123OpponentInfoViewer
 
             InitializeForm();
 
-            LoadProfileNames();
+            LoadData();
         }
 
         /*
-         * --------------------------------
+         * ============================================================
          * フォーム初期化
-         * --------------------------------
+         * ============================================================
          */
         private void InitializeForm()
         {
-            /*
-             * --------------------------------
-             * フォーム
-             * --------------------------------
-             */
-            this.Text =
-                "プロファイル検索";
+            Text =
+                "プレイヤー検索";
 
-            this.StartPosition =
-                FormStartPosition.CenterParent;
+            StartPosition =
+                FormStartPosition.CenterScreen;
 
-            this.Size =
+            Size =
                 new Size(
-                    1000,
+                    1100,
                     750);
 
-            this.MinimumSize =
+            MinimumSize =
                 new Size(
-                    750,
+                    800,
                     550);
 
+            Font =
+                new Font(
+                    "MS Gothic",
+                    9.0f);
+
             /*
-             * --------------------------------
-             * 検索フォーム
-             * --------------------------------
+             * ============================================================
+             * 上部Panel
+             * ============================================================
+             */
+            Panel topPanel =
+                new Panel();
+
+            topPanel.Location =
+                new Point(
+                    0,
+                    0);
+
+            topPanel.Size =
+                new Size(
+                    ClientSize.Width,
+                    55);
+
+            topPanel.Anchor =
+                AnchorStyles.Top |
+                AnchorStyles.Left |
+                AnchorStyles.Right;
+
+            /*
+             * ============================================================
+             * 検索欄
+             *
+             * 必ず new TextBox() してから
+             * Location / Size / Font / Event を設定する。
+             * ============================================================
              */
             txtSearch =
                 new TextBox();
@@ -201,7 +234,7 @@ namespace th123OpponentInfoViewer
 
             txtSearch.Size =
                 new Size(
-                    230,
+                    310,
                     SEARCH_HEIGHT);
 
             txtSearch.Font =
@@ -212,106 +245,99 @@ namespace th123OpponentInfoViewer
                 AnchorStyles.Top |
                 AnchorStyles.Left;
 
-            txtSearch.KeyDown +=
-                TxtSearch_KeyDown;
+            txtSearch.TextChanged +=
+                TxtSearch_TextChanged;
+
+            topPanel.Controls.Add(
+                txtSearch);
 
             /*
-             * --------------------------------
-             * 単数 / 複数ボタン
-             * --------------------------------
+             * ============================================================
+             * 代表プロファイルのみ
+             *
+             * これも必ず new CheckBox() してから
+             * プロパティを設定する。
+             * ============================================================
              */
-            btnMode =
-                new Button();
+            chkRepresentativeOnly =
+                new CheckBox();
 
-            btnMode.Text =
-                "単数";
+            chkRepresentativeOnly.Text =
+                "代表プロファイルのみの戦績を表示";
 
-            btnMode.Location =
+            chkRepresentativeOnly.AutoSize =
+                true;
+
+            chkRepresentativeOnly.Location =
                 new Point(
-                    255,
-                    13);
+                    345,
+                    17);
 
-            btnMode.Size =
-                new Size(
-                    70,
-                    30);
-
-            btnMode.Anchor =
+            chkRepresentativeOnly.Anchor =
                 AnchorStyles.Top |
                 AnchorStyles.Left;
 
-            btnMode.Click +=
-                BtnMode_Click;
+            chkRepresentativeOnly.CheckedChanged +=
+                ChkRepresentativeOnly_CheckedChanged;
+
+            topPanel.Controls.Add(
+                chkRepresentativeOnly);
 
             /*
-             * --------------------------------
-             * 上側リスト
-             * --------------------------------
+             * ============================================================
+             * 上部Panelをフォームへ追加
+             * ============================================================
              */
-            lstAvailable =
+            Controls.Add(
+                topPanel);
+
+            /*
+             * ============================================================
+             * 左側：プレイヤー一覧
+             * ============================================================
+             */
+            lstPlayers =
                 new ListBox();
 
-            lstAvailable.Location =
+            lstPlayers.Location =
                 new Point(
                     LEFT_MARGIN,
                     LIST_TOP);
 
-            lstAvailable.Size =
+            lstPlayers.Size =
                 new Size(
                     LEFT_WIDTH,
-                    500);
+                    Math.Max(
+                        100,
+                        ClientSize.Height -
+                        LIST_TOP -
+                        BOTTOM_MARGIN));
 
-            lstAvailable.SelectionMode =
-                SelectionMode.One;
-
-            lstAvailable.Font =
-                CreateFont(
-                    listFontSize);
-
-            lstAvailable.Anchor =
+            lstPlayers.Anchor =
                 AnchorStyles.Top |
-                AnchorStyles.Left |
-                AnchorStyles.Bottom;
+                AnchorStyles.Bottom |
+                AnchorStyles.Left;
 
-            lstAvailable.Click +=
-                LstAvailable_Click;
-
-            /*
-             * --------------------------------
-             * 下側リスト
-             * --------------------------------
-             */
-            lstSelected =
-                new ListBox();
-
-            lstSelected.Location =
-                new Point(
-                    LEFT_MARGIN,
-                    565);
-
-            lstSelected.Size =
-                new Size(
-                    LEFT_WIDTH,
-                    140);
-
-            lstSelected.SelectionMode =
-                SelectionMode.One;
-
-            lstSelected.Font =
+            lstPlayers.Font =
                 CreateFont(
                     listFontSize);
 
-            lstSelected.Anchor =
-                AnchorStyles.Left |
-                AnchorStyles.Bottom;
+            lstPlayers.HorizontalScrollbar =
+                true;
 
-            lstSelected.Click +=
-                LstSelected_Click;
+            lstPlayers.SelectionMode =
+                SelectionMode.One;
+
+            lstPlayers.SelectedIndexChanged +=
+                LstPlayers_SelectedIndexChanged;
+
+            Controls.Add(
+                lstPlayers);
 
             /*
-             * --------------------------------
-             * 右側詳細表示
-             * --------------------------------
+             * ============================================================
+             * 右側：結果表示
+             * ============================================================
              */
             txtResult =
                 new TextBox();
@@ -319,7 +345,7 @@ namespace th123OpponentInfoViewer
             txtResult.Location =
                 new Point(
                     RESULT_LEFT,
-                    TOP_MARGIN);
+                    RESULT_TOP);
 
             txtResult.Size =
                 new Size(
@@ -328,9 +354,17 @@ namespace th123OpponentInfoViewer
                         ClientSize.Width -
                         RESULT_LEFT -
                         BOTTOM_MARGIN),
-                    ClientSize.Height -
-                    TOP_MARGIN -
-                    BOTTOM_MARGIN);
+                    Math.Max(
+                        100,
+                        ClientSize.Height -
+                        RESULT_TOP -
+                        BOTTOM_MARGIN));
+
+            txtResult.Anchor =
+                AnchorStyles.Top |
+                AnchorStyles.Bottom |
+                AnchorStyles.Left |
+                AnchorStyles.Right;
 
             txtResult.Multiline =
                 true;
@@ -344,290 +378,110 @@ namespace th123OpponentInfoViewer
             txtResult.WordWrap =
                 false;
 
-            txtResult.Font =
-                CreateFont(
-                    resultFontSize);
-
             txtResult.BackColor =
                 Color.White;
 
-            txtResult.Anchor =
-                AnchorStyles.Top |
-                AnchorStyles.Bottom |
-                AnchorStyles.Left |
-                AnchorStyles.Right;
-
-            /*
-             * --------------------------------
-             * 右クリックメニュー
-             * --------------------------------
-             */
-            CreateResultContextMenu();
-
-            /*
-             * --------------------------------
-             * コントロール追加
-             * --------------------------------
-             */
-            Controls.Add(
-                txtSearch);
-
-            Controls.Add(
-                btnMode);
-
-            Controls.Add(
-                lstAvailable);
-
-            Controls.Add(
-                lstSelected);
+            txtResult.Font =
+                CreateFont(
+                    resultFontSize);
 
             Controls.Add(
                 txtResult);
 
             /*
-             * --------------------------------
-             * 初期レイアウト
-             * --------------------------------
+             * ============================================================
+             * 右クリックメニュー
+             * ============================================================
              */
-            UpdateListLayout();
+            CreateResultContextMenu();
         }
-
         /*
-         * --------------------------------
-         * フォント生成
-         * --------------------------------
-         */
-        private Font CreateFont(
-            float size)
-        {
-            return new Font(
-                "MS Gothic",
-                size);
-        }
-
-        /*
-         * --------------------------------
-         * リスト配置更新
-         * --------------------------------
-         */
-        private void UpdateListLayout()
-        {
-            int top =
-                LIST_TOP;
-
-            int bottomMargin =
-                BOTTOM_MARGIN;
-
-            int totalHeight =
-                ClientSize.Height -
-                top -
-                bottomMargin;
-
-            if (totalHeight < 100)
-            {
-                totalHeight =
-                    100;
-            }
-
-            /*
-             * 上側リストを約4/5。
-             */
-            int availableHeight =
-                (int)(
-                    totalHeight *
-                    0.8);
-
-            /*
-             * 下側リストを約1/5。
-             */
-            int selectedHeight =
-                totalHeight -
-                availableHeight;
-
-            /*
-             * 最低高さを確保。
-             */
-            if (selectedHeight < 60)
-            {
-                selectedHeight =
-                    60;
-
-                availableHeight =
-                    totalHeight -
-                    selectedHeight;
-            }
-
-            if (availableHeight < 40)
-            {
-                availableHeight =
-                    40;
-            }
-
-            /*
-             * --------------------------------
-             * 上側リスト
-             * --------------------------------
-             */
-            lstAvailable.Location =
-                new Point(
-                    LEFT_MARGIN,
-                    top);
-
-            lstAvailable.Size =
-                new Size(
-                    LEFT_WIDTH,
-                    availableHeight);
-
-            /*
-             * --------------------------------
-             * 下側リスト
-             * --------------------------------
-             */
-            lstSelected.Location =
-                new Point(
-                    LEFT_MARGIN,
-                    top +
-                    availableHeight);
-
-            lstSelected.Size =
-                new Size(
-                    LEFT_WIDTH,
-                    selectedHeight);
-        }
-
-        /*
-         * --------------------------------
-         * フォームサイズ変更
-         * --------------------------------
+         * ============================================================
+         * リサイズ
+         * ============================================================
+         *
+         * 検索欄は固定幅。
+         * 左リストは高さだけ伸縮。
+         * 右結果欄は上下左右に追従。
+         *
+         * これにより右下からリサイズしても
+         * 検索フォームが縮まらない。
          */
         protected override void OnResize(
             EventArgs e)
         {
             base.OnResize(e);
 
-            if (IsHandleCreated)
+            if (!IsHandleCreated)
             {
-                UpdateListLayout();
+                return;
+            }
+
+            if (lstPlayers != null)
+            {
+                lstPlayers.Height =
+                    Math.Max(
+                        100,
+                        ClientSize.Height -
+                        LIST_TOP -
+                        BOTTOM_MARGIN);
+            }
+
+            if (txtResult != null)
+            {
+                txtResult.Width =
+                    Math.Max(
+                        100,
+                        ClientSize.Width -
+                        RESULT_LEFT -
+                        BOTTOM_MARGIN);
+
+                txtResult.Height =
+                    Math.Max(
+                        100,
+                        ClientSize.Height -
+                        RESULT_TOP -
+                        BOTTOM_MARGIN);
             }
         }
 
         /*
-         * --------------------------------
-         * 右クリックメニュー
-         * --------------------------------
+         * ============================================================
+         * データ読み込み
+         * ============================================================
          */
-        private void CreateResultContextMenu()
-        {
-            resultContextMenu =
-                new ContextMenuStrip();
-
-            ToolStripMenuItem menu8 =
-                new ToolStripMenuItem(
-                    "8 px");
-
-            menu8.Click +=
-                delegate
-                {
-                    SetResultFontSize(
-                        8.0f);
-                };
-
-            ToolStripMenuItem menu10 =
-                new ToolStripMenuItem(
-                    "10 px");
-
-            menu10.Click +=
-                delegate
-                {
-                    SetResultFontSize(
-                        10.0f);
-                };
-
-            ToolStripMenuItem menu14 =
-                new ToolStripMenuItem(
-                    "14 px");
-
-            menu14.Click +=
-                delegate
-                {
-                    SetResultFontSize(
-                        14.0f);
-                };
-
-            ToolStripMenuItem menu20 =
-                new ToolStripMenuItem(
-                    "20 px");
-
-            menu20.Click +=
-                delegate
-                {
-                    SetResultFontSize(
-                        20.0f);
-                };
-
-            resultContextMenu.Items.Add(
-                menu8);
-
-            resultContextMenu.Items.Add(
-                menu10);
-
-            resultContextMenu.Items.Add(
-                menu14);
-
-            resultContextMenu.Items.Add(
-                menu20);
-
-            txtResult.ContextMenuStrip =
-                resultContextMenu;
-        }
-
-        /*
-         * --------------------------------
-         * 詳細表示フォントサイズ変更
-         * --------------------------------
-         */
-        private void SetResultFontSize(
-            float size)
-        {
-            resultFontSize =
-                size;
-
-            txtResult.Font =
-                new Font(
-                    txtResult.Font.FontFamily,
-                    resultFontSize,
-                    txtResult.Font.Style);
-        }
-
-        /*
-         * --------------------------------
-         * プロファイル一覧読み込み
-         * --------------------------------
-         */
-        private void LoadProfileNames()
+        private void LoadData()
         {
             try
             {
-                List<string> names =
-                    database.GetP2ProfileNames();
-
                 allProfileNames =
-                    names
-                        .Distinct()
+                    database
+                        .GetP2ProfileNames()
+                        .Where(
+                            x =>
+                                !string.IsNullOrWhiteSpace(
+                                    x))
+                        .Distinct(
+                            StringComparer.Ordinal)
                         .OrderBy(
-                            x => x)
+                            x => x,
+                            StringComparer.CurrentCulture)
                         .ToList();
 
-                selectedProfileNames.Clear();
+                allPlayers =
+                    combinedDatabase
+                        .GetPlayers();
 
-                RefreshProfileLists();
+                BuildSearchItems();
+
+                RefreshSearchList();
 
                 txtResult.Clear();
             }
             catch (Exception ex)
             {
                 MessageBox.Show(
-                    "プロファイル一覧を読み込めませんでした。\r\n\r\n" +
+                    "プレイヤー検索の読み込みに失敗しました。\r\n\r\n" +
                     ex.Message,
                     "エラー",
                     MessageBoxButtons.OK,
@@ -636,18 +490,310 @@ namespace th123OpponentInfoViewer
         }
 
         /*
-         * --------------------------------
-         * 現在の検索条件取得
-         * --------------------------------
+         * ============================================================
+         * 検索項目作成
+         * ============================================================
+         *
+         * Default.dbに存在する全プロファイルを基準にする。
+         *
+         * そのため、
+         *
+         *   ・プレイヤー登録済み
+         *   ・プレイヤー未登録
+         *
+         * の両方が左側に表示される。
          */
-        private IEnumerable<string>
-            GetFilteredProfileNames()
+        private void BuildSearchItems()
         {
-            string keyword =
-                txtSearch.Text;
+            searchItems =
+                new List<SearchPlayerItem>();
 
-            IEnumerable<string> filtered =
-                allProfileNames;
+            /*
+             * 同一プレイヤーを何度も追加しないため、
+             * PlayerId → SearchPlayerItem を保持する。
+             */
+            Dictionary<int, SearchPlayerItem>
+                playerItems =
+                    new Dictionary<int, SearchPlayerItem>();
+
+            foreach (string profile
+                in allProfileNames)
+            {
+                CombinedPlayer player =
+                    FindPlayerByProfile(
+                        profile);
+
+                /*
+                 * ------------------------------------------------
+                 * 未登録
+                 * ------------------------------------------------
+                 */
+                if (player == null)
+                {
+                    SearchPlayerItem item =
+                        new SearchPlayerItem();
+
+                    item.DisplayName =
+                        profile;
+
+                    item.ProfileName =
+                        profile;
+
+                    item.Profiles =
+                        new List<string>
+                        {
+                        profile
+                        };
+
+                    item.Player =
+                        null;
+
+                    searchItems.Add(
+                        item);
+
+                    continue;
+                }
+
+                /*
+                 * ------------------------------------------------
+                 * 登録済み
+                 * ------------------------------------------------
+                 */
+                SearchPlayerItem playerItem;
+
+                if (!playerItems.TryGetValue(
+                    player.PlayerId,
+                    out playerItem))
+                {
+                    playerItem =
+                        new SearchPlayerItem();
+
+                    /*
+                     * プレイヤー名がある場合は
+                     * プレイヤー名を表示。
+                     *
+                     * 無い場合は代表プロファイル、
+                     * それも無ければ現在のプロファイル。
+                     */
+                    playerItem.DisplayName =
+                        GetPlayerDisplayName(
+                            player);
+
+                    playerItem.ProfileName =
+                        profile;
+
+                    playerItem.Profiles =
+                        new List<string>();
+
+                    playerItem.Player =
+                        player;
+
+                    playerItems.Add(
+                        player.PlayerId,
+                        playerItem);
+
+                    searchItems.Add(
+                        playerItem);
+                }
+
+                /*
+                 * DB上の所属プロファイルを
+                 * 全て検索対象にする。
+                 */
+                if (player.Profiles != null)
+                {
+                    foreach (string playerProfile
+                        in player.Profiles)
+                    {
+                        if (string.IsNullOrWhiteSpace(
+                            playerProfile))
+                        {
+                            continue;
+                        }
+
+                        if (!playerItem.Profiles.Contains(
+                            playerProfile,
+                            StringComparer.Ordinal))
+                        {
+                            playerItem.Profiles.Add(
+                                playerProfile);
+                        }
+                    }
+                }
+
+                /*
+                 * 念のため現在のプロファイルも追加。
+                 */
+                if (!playerItem.Profiles.Contains(
+                    profile,
+                    StringComparer.Ordinal))
+                {
+                    playerItem.Profiles.Add(
+                        profile);
+                }
+            }
+
+            /*
+             * Player DBには存在するが、
+             * Default.db側に何らかの理由で
+             * プロファイルが出てこない場合も
+             * 検索対象として追加する。
+             */
+            foreach (CombinedPlayer player
+                in allPlayers)
+            {
+                if (player == null)
+                {
+                    continue;
+                }
+
+                if (playerItems.ContainsKey(
+                    player.PlayerId))
+                {
+                    continue;
+                }
+
+                SearchPlayerItem item =
+                    new SearchPlayerItem();
+
+                item.Player =
+                    player;
+
+                item.DisplayName =
+                    GetPlayerDisplayName(
+                        player);
+
+                item.ProfileName =
+                    GetFirstProfile(
+                        player);
+
+                item.Profiles =
+                    player.Profiles == null
+                        ? new List<string>()
+                        : new List<string>(
+                            player.Profiles);
+
+                searchItems.Add(
+                    item);
+
+                playerItems.Add(
+                    player.PlayerId,
+                    item);
+            }
+        }
+
+        /*
+         * ============================================================
+         * プレイヤー表示名
+         * ============================================================
+         */
+        private string GetPlayerDisplayName(
+            CombinedPlayer player)
+        {
+            if (player == null)
+            {
+                return "";
+            }
+
+            /*
+             * 既存DBクラスの表示名処理を優先。
+             */
+            string displayName =
+                combinedDatabase.GetDisplayName(
+                    player);
+
+            if (!string.IsNullOrWhiteSpace(
+                displayName))
+            {
+                return displayName;
+            }
+
+            string firstProfile =
+                GetFirstProfile(
+                    player);
+
+            return firstProfile;
+        }
+
+        /*
+         * ============================================================
+         * 最初のプロファイル
+         * ============================================================
+         */
+        private string GetFirstProfile(
+            CombinedPlayer player)
+        {
+            if (player == null ||
+                player.Profiles == null)
+            {
+                return "";
+            }
+
+            foreach (string profile
+                in player.Profiles)
+            {
+                if (!string.IsNullOrWhiteSpace(
+                    profile))
+                {
+                    return profile;
+                }
+            }
+
+            return "";
+        }
+
+        /*
+         * ============================================================
+         * プロファイルからプレイヤー検索
+         * ============================================================
+         */
+        private CombinedPlayer FindPlayerByProfile(
+            string profileName)
+        {
+            if (string.IsNullOrWhiteSpace(
+                profileName))
+            {
+                return null;
+            }
+
+            foreach (CombinedPlayer player
+                in allPlayers)
+            {
+                if (player == null ||
+                    player.Profiles == null)
+                {
+                    continue;
+                }
+
+                if (player.Profiles.Contains(
+                    profileName,
+                    StringComparer.Ordinal))
+                {
+                    return player;
+                }
+            }
+
+            return null;
+        }
+
+        /*
+         * ============================================================
+         * 検索リスト更新
+         * ============================================================
+         */
+        private void RefreshSearchList()
+        {
+            if (txtSearch == null ||
+                lstPlayers == null)
+            {
+                return;
+            }
+
+            string keyword =
+                txtSearch.Text.Trim();
+
+            IEnumerable<SearchPlayerItem> filtered =
+                searchItems;
 
             if (!string.IsNullOrWhiteSpace(
                 keyword))
@@ -655,337 +801,256 @@ namespace th123OpponentInfoViewer
                 filtered =
                     filtered.Where(
                         x =>
-                            x.IndexOf(
-                                keyword,
-                                StringComparison.OrdinalIgnoreCase) >=
-                            0);
+                            x.Matches(
+                                keyword));
             }
 
-            return filtered;
-        }
-
-        /*
-         * --------------------------------
-         * リスト更新
-         * --------------------------------
-         */
-        private void RefreshProfileLists()
-        {
-            updatingLists =
+            updatingList =
                 true;
 
             try
             {
-                /*
-                 * --------------------------------
-                 * 上側
-                 * --------------------------------
-                 */
-                lstAvailable.BeginUpdate();
+                lstPlayers.BeginUpdate();
 
-                try
+                lstPlayers.Items.Clear();
+
+                foreach (SearchPlayerItem item
+                    in filtered)
                 {
-                    lstAvailable.Items.Clear();
-
-                    IEnumerable<string> filtered =
-                        GetFilteredProfileNames();
-
-                    foreach (string name in
-                        filtered)
-                    {
-                        if (selectedProfileNames.Contains(
-                            name))
-                        {
-                            continue;
-                        }
-
-                        lstAvailable.Items.Add(
-                            name);
-                    }
-                }
-                finally
-                {
-                    lstAvailable.EndUpdate();
-                }
-
-                /*
-                 * --------------------------------
-                 * 下側
-                 * --------------------------------
-                 */
-                lstSelected.BeginUpdate();
-
-                try
-                {
-                    lstSelected.Items.Clear();
-
-                    foreach (string name in
-                        selectedProfileNames)
-                    {
-                        lstSelected.Items.Add(
-                            name);
-                    }
-                }
-                finally
-                {
-                    lstSelected.EndUpdate();
+                    lstPlayers.Items.Add(
+                        item);
                 }
             }
             finally
             {
-                updatingLists =
+                lstPlayers.EndUpdate();
+
+                updatingList =
                     false;
             }
         }
 
         /*
-         * --------------------------------
-         * 検索文字入力
-         * --------------------------------
+         * ============================================================
+         * 検索
+         * ============================================================
          */
-        private void TxtSearch_KeyDown(
+        private void TxtSearch_TextChanged(
             object sender,
-            KeyEventArgs e)
+            EventArgs e)
         {
-            if (e.KeyCode !=
-                Keys.Enter)
+            RefreshSearchList();
+        }
+
+        /*
+         * ============================================================
+         * プレイヤー選択
+         * ============================================================
+         */
+        private void LstPlayers_SelectedIndexChanged(
+            object sender,
+            EventArgs e)
+        {
+            if (updatingList)
             {
                 return;
             }
 
-            e.SuppressKeyPress =
-                true;
+            SearchPlayerItem item =
+                lstPlayers.SelectedItem
+                    as SearchPlayerItem;
 
-            PerformSearch();
-        }
-
-        /*
-         * --------------------------------
-         * 検索
-         * --------------------------------
-         */
-        private void PerformSearch()
-        {
-            RefreshProfileLists();
-
-            if (selectedProfileNames.Count > 0)
+            if (item == null)
             {
-                ShowProfiles(
-                    selectedProfileNames);
+                txtResult.Clear();
+
+                return;
             }
+
+            ShowPlayer(
+                item);
         }
 
         /*
-         * --------------------------------
-         * 単数 / 複数切替
-         * --------------------------------
+         * ============================================================
+         * 代表のみ切り替え
+         * ============================================================
          */
-        private void BtnMode_Click(
+        private void ChkRepresentativeOnly_CheckedChanged(
             object sender,
             EventArgs e)
         {
-            multipleMode =
-                !multipleMode;
+            SearchPlayerItem item =
+                lstPlayers.SelectedItem
+                    as SearchPlayerItem;
 
-            if (multipleMode)
+            if (item == null)
             {
-                btnMode.Text =
-                    "複数";
+                return;
             }
-            else
+
+            ShowPlayer(
+                item);
+        }
+
+        /*
+         * ============================================================
+         * プレイヤー表示
+         * ============================================================
+         */
+        private void ShowPlayer(
+            SearchPlayerItem item)
+        {
+            try
             {
-                btnMode.Text =
-                    "単数";
+                List<string> profiles;
 
-                if (selectedProfileNames.Count > 1)
+                /*
+                 * ------------------------------------------------
+                 * 未登録
+                 * ------------------------------------------------
+                 */
+                if (item.Player == null)
                 {
-                    string keep =
-                        selectedProfileNames[0];
-
-                    selectedProfileNames =
+                    profiles =
                         new List<string>
                         {
-                            keep
+                        item.ProfileName
                         };
+                }
+                else
+                {
+                    /*
+                     * ------------------------------------------------
+                     * 代表のみ
+                     * ------------------------------------------------
+                     */
+                    if (chkRepresentativeOnly.Checked)
+                    {
+                        profiles =
+                            new List<string>();
+
+                        if (!string.IsNullOrWhiteSpace(
+                            item.Player.RepresentativeProfile))
+                        {
+                            profiles.Add(
+                                item.Player.RepresentativeProfile);
+                        }
+                    }
+                    else
+                    {
+                        profiles =
+                            GetOrderedProfiles(
+                                item.Player,
+                                item.Profiles);
+                    }
+                }
+
+                
+                
+                profiles =
+                    profiles
+                        .Where(
+                            x =>
+                                !string.IsNullOrWhiteSpace(
+                                    x))
+                        .Distinct(
+                            StringComparer.Ordinal)
+                        .ToList();
+
+                ShowProfiles(
+                    item.DisplayName,
+                    profiles);
+            }
+            catch (Exception ex)
+            {
+                txtResult.Text =
+                    "戦績の読み込みに失敗しました。\r\n\r\n" +
+                    ex.Message;
+            }
+        }
+
+        /*
+         * ============================================================
+         * プロファイル表示順
+         * ============================================================
+         *
+         * 代表プロファイルを必ず先頭にする。
+         * それ以外の所属プロファイルは元の順番を維持する。
+         */
+        private List<string> GetOrderedProfiles(
+            CombinedPlayer player,
+            List<string> profiles)
+        {
+            List<string> result =
+                new List<string>();
+
+            if (player == null)
+            {
+                return result;
+            }
+
+            string representative =
+                player.RepresentativeProfile;
+
+            if (!string.IsNullOrWhiteSpace(
+                representative))
+            {
+                result.Add(
+                    representative);
+            }
+
+            if (profiles != null)
+            {
+                foreach (string profile
+                    in profiles)
+                {
+                    if (string.IsNullOrWhiteSpace(
+                        profile))
+                    {
+                        continue;
+                    }
+
+                    if (result.Contains(
+                        profile,
+                        StringComparer.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    result.Add(
+                        profile);
                 }
             }
 
-            RefreshProfileLists();
-
-            if (selectedProfileNames.Count > 0)
-            {
-                ShowProfiles(
-                    selectedProfileNames);
-            }
-            else
-            {
-                txtResult.Clear();
-            }
+            return result;
         }
 
         /*
-         * --------------------------------
-         * 上側リストクリック
-         * --------------------------------
-         */
-        private void LstAvailable_Click(
-            object sender,
-            EventArgs e)
-        {
-            if (updatingLists)
-            {
-                return;
-            }
-
-            if (lstAvailable.SelectedItem == null)
-            {
-                return;
-            }
-
-            string name =
-                lstAvailable.SelectedItem as string;
-
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                return;
-            }
-
-            /*
-             * 単数モード。
-             */
-            if (!multipleMode)
-            {
-                selectedProfileNames.Clear();
-
-                selectedProfileNames.Add(
-                    name);
-
-                RefreshProfileLists();
-
-                ShowProfiles(
-                    selectedProfileNames);
-
-                return;
-            }
-
-            /*
-             * 複数モード。
-             */
-            if (!selectedProfileNames.Contains(
-                name))
-            {
-                selectedProfileNames.Add(
-                    name);
-            }
-
-            RefreshProfileLists();
-
-            ShowProfiles(
-                selectedProfileNames);
-        }
-
-        /*
-         * --------------------------------
-         * 下側リストクリック
-         * --------------------------------
-         */
-        private void LstSelected_Click(
-            object sender,
-            EventArgs e)
-        {
-            if (updatingLists)
-            {
-                return;
-            }
-
-            if (lstSelected.SelectedItem == null)
-            {
-                return;
-            }
-
-            string name =
-                lstSelected.SelectedItem as string;
-
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                return;
-            }
-
-            /*
-             * 単数モード。
-             */
-            if (!multipleMode)
-            {
-                selectedProfileNames.Clear();
-
-                selectedProfileNames.Add(
-                    name);
-
-                RefreshProfileLists();
-
-                ShowProfiles(
-                    selectedProfileNames);
-
-                return;
-            }
-
-            /*
-             * 複数モード。
-             *
-             * 下側から削除。
-             */
-            selectedProfileNames.Remove(
-                name);
-
-            RefreshProfileLists();
-
-            if (selectedProfileNames.Count > 0)
-            {
-                ShowProfiles(
-                    selectedProfileNames);
-            }
-            else
-            {
-                txtResult.Clear();
-            }
-        }
-
-        /*
-         * --------------------------------
-         * プロファイル詳細表示
-         * --------------------------------
+         * ============================================================
+         * 戦績表示
+         * ============================================================
          */
         private void ShowProfiles(
+            string displayName,
             List<string> profileNames)
         {
             try
             {
-                int totalMatches =
-                    0;
+                int totalMatches = 0;
 
-                int totalSelfWins =
-                    0;
+                // 自分視点
+                int totalSelfWins = 0;
+                int totalOpponentWins = 0;
 
-                int totalOpponentWins =
-                    0;
+                int last30SelfWins = 0;
+                int last30OpponentWins = 0;
 
-                int last30SelfWins =
-                    0;
+                int last100SelfWins = 0;
+                int last100OpponentWins = 0;
 
-                int last30OpponentWins =
-                    0;
-
-                int last100SelfWins =
-                    0;
-
-                int last100OpponentWins =
-                    0;
-
-                int lastMonthSelfWins =
-                    0;
-
-                int lastMonthOpponentWins =
-                    0;
+                int lastMonthSelfWins = 0;
+                int lastMonthOpponentWins = 0;
 
                 DateTime firstMatchDate =
                     DateTime.MaxValue;
@@ -999,28 +1064,23 @@ namespace th123OpponentInfoViewer
                 DateTime lastLossDate =
                     DateTime.MinValue;
 
-                bool hasLastWinDate =
-                    false;
+                bool hasLastWinDate = false;
+                bool hasLastLossDate = false;
 
-                bool hasLastLossDate =
-                    false;
+                bool hasAnyRecords = false;
+                bool hasUnrecordedWinningRound = false;
 
                 Dictionary<int, TskCharacterStats>
                     combinedCharacterStats =
                         new Dictionary<int, TskCharacterStats>();
 
-                bool hasAnyRecords =
-                    false;
-
-                bool hasUnrecordedWinningRound =
-                    false;
-
-                bool allProfilesHaveUnrecordedWinningRound =
-                    true;
-
-                foreach (string profileName in
-                    profileNames)
+                foreach (string profileName in profileNames)
                 {
+                    if (string.IsNullOrWhiteSpace(profileName))
+                    {
+                        continue;
+                    }
+
                     TskOpponentStats stats =
                         database.GetPlayerStats(
                             profileName);
@@ -1030,41 +1090,30 @@ namespace th123OpponentInfoViewer
                         continue;
                     }
 
-                    hasAnyRecords =
-                        true;
+                    hasAnyRecords = true;
 
                     if (stats.IsHasUnrecordedWinningRound)
                     {
-                        hasUnrecordedWinningRound =
-                            true;
-                    }
-
-                    if (!stats.IsHasUnrecordedWinningRound)
-                    {
-                        allProfilesHaveUnrecordedWinningRound =
-                            false;
+                        hasUnrecordedWinningRound = true;
                     }
 
                     totalMatches +=
                         stats.TotalMatches;
 
+                    /*
+                     * Default.db の GetPlayerStats は
+                     * P2プロフィール視点なので、
+                     *
+                     *   P2 Wins   = 相手の勝利
+                     *   P2 Losses = 自分の勝利
+                     *
+                     * として自分視点に変換する。
+                     */
                     totalSelfWins +=
                         stats.TotalLosses;
 
                     totalOpponentWins +=
                         stats.TotalWins;
-
-                    last30SelfWins +=
-                        stats.Last30Losses;
-
-                    last30OpponentWins +=
-                        stats.Last30Wins;
-
-                    last100SelfWins +=
-                        stats.Last100Losses;
-
-                    last100OpponentWins +=
-                        stats.Last100Wins;
 
                     lastMonthSelfWins +=
                         stats.LastMonthLosses;
@@ -1094,54 +1143,62 @@ namespace th123OpponentInfoViewer
                         }
                     }
 
-                    if (stats.LastWinDate.HasValue)
+                    /*
+                     * GetPlayerStatsのLastWinDate / LastLossDateも
+                     * P2視点なので、自分視点に入れ替える。
+                     */
+                    if (stats.LastLossDate.HasValue)
                     {
                         if (!hasLastWinDate ||
-                            stats.LastWinDate.Value >
+                            stats.LastLossDate.Value >
                             lastWinDate)
                         {
                             lastWinDate =
-                                stats.LastWinDate.Value;
+                                stats.LastLossDate.Value;
 
-                            hasLastWinDate =
-                                true;
+                            hasLastWinDate = true;
                         }
                     }
 
-                    if (stats.LastLossDate.HasValue)
+                    if (stats.LastWinDate.HasValue)
                     {
                         if (!hasLastLossDate ||
-                            stats.LastLossDate.Value >
+                            stats.LastWinDate.Value >
                             lastLossDate)
                         {
                             lastLossDate =
-                                stats.LastLossDate.Value;
+                                stats.LastWinDate.Value;
 
-                            hasLastLossDate =
-                                true;
+                            hasLastLossDate = true;
                         }
                     }
 
+                    /*
+                     * キャラクター使用状況
+                     *
+                     * P2CharacterStatsもP2視点なので、
+                     * Wins/Lossesは表示時に自分視点へ変換する。
+                     */
                     Dictionary<int, TskCharacterStats>
                         characterStats =
                             database.GetP2CharacterStats(
                                 profileName);
 
-                    foreach (var item in
-                        characterStats)
+                    foreach (var characterEntry
+                        in characterStats)
                     {
                         int characterId =
-                            item.Key;
+                            characterEntry.Key;
 
                         TskCharacterStats source =
-                            item.Value;
+                            characterEntry.Value;
 
                         if (!combinedCharacterStats.ContainsKey(
                             characterId))
                         {
-                            combinedCharacterStats[
-                                characterId] =
-                                new TskCharacterStats();
+                            combinedCharacterStats.Add(
+                                characterId,
+                                new TskCharacterStats());
                         }
 
                         TskCharacterStats destination =
@@ -1151,46 +1208,152 @@ namespace th123OpponentInfoViewer
                         destination.Matches +=
                             source.Matches;
 
+                        /*
+                         * P2のLosses = 自分の勝利
+                         */
                         destination.Wins +=
-                            source.Wins;
-
-                        destination.Losses +=
                             source.Losses;
+
+                        /*
+                         * P2のWins = 自分の敗北
+                         */
+                        destination.Losses +=
+                            source.Wins;
                     }
                 }
 
                 /*
-                 * --------------------------------
+                 * --------------------------------------------------------
+                 * 複数プロファイルを統合した最近の戦績
+                 * --------------------------------------------------------
+                 */
+                List<TskMatchRecord> combinedRecords =
+                    database.GetP2MatchRecords(
+                        profileNames);
+
+                List<TskMatchRecord> last30Records =
+                    combinedRecords
+                        .OrderByDescending(
+                            x => x.DateTime)
+                        .Take(30)
+                        .ToList();
+
+                List<TskMatchRecord> last100Records =
+                    combinedRecords
+                        .OrderByDescending(
+                            x => x.DateTime)
+                        .Take(100)
+                        .ToList();
+
+                last30SelfWins =
+                    last30Records.Count(
+                        x => x.P1RoundCount >= 2);
+
+                last30OpponentWins =
+                    last30Records.Count(
+                        x => x.P2RoundCount >= 2);
+
+                last100SelfWins =
+                    last100Records.Count(
+                        x => x.P1RoundCount >= 2);
+
+                last100OpponentWins =
+                    last100Records.Count(
+                        x => x.P2RoundCount >= 2);
+
+                /*
+                 * --------------------------------------------------------
                  * 記録なし
-                 * --------------------------------
+                 * --------------------------------------------------------
                  */
                 if (!hasAnyRecords)
                 {
-                    txtResult.Text =
-                        CreateProfileHeader(
-                            profileNames) +
-                        "\r\n" +
+                    string noRecordText =
+                        "【プロファイル詳細】\r\n\r\n";
+
+                    if (!string.IsNullOrWhiteSpace(
+                        displayName))
+                    {
+                        noRecordText +=
+                            "表示名： " +
+                            displayName +
+                            "\r\n";
+                    }
+
+                    noRecordText +=
+                        "プロファイル：";
+
+                    for (int i = 0;
+                         i < profileNames.Count;
+                         i++)
+                    {
+                        if (i == 0)
+                        {
+                            noRecordText +=
+                                profileNames[i];
+                        }
+                        else
+                        {
+                            noRecordText +=
+                                "\r\n             " +
+                                profileNames[i];
+                        }
+                    }
+
+                    noRecordText +=
+                        "\r\n\r\n" +
                         "対戦記録がありません。";
+
+                    txtResult.Text =
+                        noRecordText;
 
                     return;
                 }
 
                 /*
-                 * --------------------------------
-                 * 本文
-                 * --------------------------------
+                 * --------------------------------------------------------
+                 * ヘッダー
+                 * --------------------------------------------------------
                  */
                 string text =
-                    CreateProfileHeader(
-                        profileNames);
+                    "【プロファイル詳細】\r\n\r\n";
+
+                if (!string.IsNullOrWhiteSpace(
+                    displayName))
+                {
+                    text +=
+                        "表示名： " +
+                        displayName +
+                        "\r\n\r\n";
+                }
 
                 text +=
-                    "\r\n";
+                    "プロファイル：";
+
+                for (int i = 0;
+                     i < profileNames.Count;
+                     i++)
+                {
+                    if (i == 0)
+                    {
+                        text +=
+                            profileNames[i];
+                    }
+                    else
+                    {
+                        text +=
+                            "\r\n              " +
+                            profileNames[i];
+                    }
+                }
+
+                text +=
+                    "\r\n\r\n";
 
                 /*
-                 * --------------------------------
+                 * --------------------------------------------------------
                  * 基本情報
-                 * --------------------------------
+                 * --------------------------------------------------------
                  */
                 text +=
                     "【基本情報】\r\n";
@@ -1218,21 +1381,21 @@ namespace th123OpponentInfoViewer
                             totalOpponentWins)) +
                     "\r\n";
 
-                if (hasAnyRecords &&
-                    allProfilesHaveUnrecordedWinningRound)
+                if (hasUnrecordedWinningRound)
                 {
                     text +=
                         "[ラウンド未取得]\r\n";
                 }
 
-                text += "\r\n";
+                text +=
+                    "\r\n";
 
-                    /*
-                     * --------------------------------
-                     * 最近の戦績
-                     * --------------------------------
-                     */
-                    text +=
+                /*
+                 * --------------------------------------------------------
+                 * 最近の戦績
+                 * --------------------------------------------------------
+                 */
+                text +=
                     "【最近の戦績】\r\n";
 
                 text +=
@@ -1260,9 +1423,9 @@ namespace th123OpponentInfoViewer
                     "\r\n\r\n";
 
                 /*
-                 * --------------------------------
+                 * --------------------------------------------------------
                  * キャラクター使用状況
-                 * --------------------------------
+                 * --------------------------------------------------------
                  */
                 text +=
                     "【キャラクター使用状況】\r\n";
@@ -1274,30 +1437,21 @@ namespace th123OpponentInfoViewer
                         .ThenBy(
                             x => x.Key);
 
-                foreach (var item in
-                    orderedCharacters)
+                foreach (var characterEntry
+                    in orderedCharacters)
                 {
-                    int characterId =
-                        item.Key;
-
-                    TskCharacterStats charStats =
-                        item.Value;
-
-                    string characterName =
-                        GetCharacterName(
-                            characterId);
-
                     text +=
                         FormatCharacterLine(
-                            characterName,
-                            charStats) +
+                            GetCharacterName(
+                                characterEntry.Key),
+                            characterEntry.Value) +
                         "\r\n";
                 }
 
                 /*
-                 * --------------------------------
+                 * --------------------------------------------------------
                  * 対戦日時
-                 * --------------------------------
+                 * --------------------------------------------------------
                  */
                 text +=
                     "\r\n";
@@ -1344,9 +1498,9 @@ namespace th123OpponentInfoViewer
                 }
 
                 /*
-                 * --------------------------------
+                 * --------------------------------------------------------
                  * メインキャラ
-                 * --------------------------------
+                 * --------------------------------------------------------
                  */
                 text +=
                     "\r\n";
@@ -1357,7 +1511,8 @@ namespace th123OpponentInfoViewer
                 if (combinedCharacterStats.Count > 0)
                 {
                     /*
-                     * 対戦回数最多。
+                     * 第一メイン：
+                     * 最も使用回数が多いキャラクター。
                      */
                     var mainCharacter =
                         combinedCharacterStats
@@ -1367,27 +1522,26 @@ namespace th123OpponentInfoViewer
                                 x => x.Key)
                             .First();
 
-                    int mainId =
-                        mainCharacter.Key;
-
-                    TskCharacterStats mainStats =
-                        mainCharacter.Value;
-
                     string mainName =
                         GetCharacterName(
-                            mainId);
+                            mainCharacter.Key);
 
                     text +=
                         "対戦回数 : " +
                         mainName +
                         " (" +
-                        mainStats.Matches +
+                        mainCharacter.Value.Matches +
                         "戦)\r\n";
 
                     /*
-                     * P2視点の相手勝率。
+                     * 第二メイン：
+                     * 自分視点で最も敗北率が高いキャラクター。
+                     *
+                     * ここで使っているLossesは、
+                     * 上の集計でP2 Winsから自分視点へ
+                     * 変換済み。
                      */
-                    var opponentCharacter =
+                    var secondCharacter =
                         combinedCharacterStats
                             .Where(
                                 x =>
@@ -1401,28 +1555,39 @@ namespace th123OpponentInfoViewer
                                     Stats =
                                         x.Value,
 
-                                    Rate =
-                                        x.Value.Wins *
+                                    LossRate =
+                                        x.Value.Losses *
                                         100.0 /
                                         x.Value.Matches
                                 })
                             .OrderByDescending(
-                                x => x.Rate)
+                                x => x.LossRate)
                             .ThenByDescending(
                                 x => x.Stats.Matches)
                             .ThenBy(
                                 x => x.CharacterId)
                             .First();
 
-                    string opponentCharacterName =
+                    string secondName =
                         GetCharacterName(
-                            opponentCharacter.CharacterId);
+                            secondCharacter.CharacterId);
+
+                    /*
+                     * 2行目の勝率は相手視点。
+                     *
+                     * つまり「そのキャラに対して相手が
+                     * どれだけ勝っているか」を表示する。
+                     */
+                    double opponentWinRate =
+                        secondCharacter.Stats.Losses *
+                        100.0 /
+                        secondCharacter.Stats.Matches;
 
                     text +=
                         "相手勝率 : " +
-                        opponentCharacterName +
+                        secondName +
                         " (" +
-                        opponentCharacter.Rate.ToString(
+                        opponentWinRate.ToString(
                             "0.0") +
                         "%)";
                 }
@@ -1443,47 +1608,208 @@ namespace th123OpponentInfoViewer
                     ex.Message;
             }
         }
-
         /*
-         * --------------------------------
-         * プロファイル名ヘッダー
-         * --------------------------------
+         * ============================================================
+         * キャラクター集計
+         * ============================================================
+         *
+         * P2視点のWins/Lossesをそのまま保持する。
+         *
+         * 表示時に
+         *
+         *   Losses → 自分の勝ち
+         *   Wins   → 自分の負け
+         *
+         * として扱う。
          */
-        private string CreateProfileHeader(
-            List<string> profileNames)
+        private Dictionary<int, TskCharacterStats>
+            GetCombinedCharacterStats(
+                List<string> profileNames)
         {
-            string text =
-                "【プロファイル詳細】\r\n\r\n";
+            Dictionary<int, TskCharacterStats>
+                result =
+                    new Dictionary<int, TskCharacterStats>();
 
-            if (profileNames.Count == 0)
+            foreach (string profile
+                in profileNames)
             {
-                return text;
+                if (string.IsNullOrWhiteSpace(
+                    profile))
+                {
+                    continue;
+                }
+
+                Dictionary<int, TskCharacterStats>
+                    source =
+                        database.GetP2CharacterStats(
+                            profile);
+
+                if (source == null)
+                {
+                    continue;
+                }
+
+                foreach (var item
+                    in source)
+                {
+                    if (!result.ContainsKey(
+                        item.Key))
+                    {
+                        result.Add(
+                            item.Key,
+                            new TskCharacterStats());
+                    }
+
+                    result[item.Key].Matches +=
+                        item.Value.Matches;
+
+                    result[item.Key].Wins +=
+                        item.Value.Wins;
+
+                    result[item.Key].Losses +=
+                        item.Value.Losses;
+                }
             }
 
-            text +=
-                "プロファイル : " +
-                profileNames[0] +
-                "\r\n";
-
-            for (int i = 1;
-                 i < profileNames.Count;
-                 i++)
-            {
-                text +=
-                    new string(
-                        ' ',
-                        15) +
-                    profileNames[i] +
-                    "\r\n";
-            }
-
-            return text;
+            return result;
         }
 
         /*
-         * --------------------------------
+         * ============================================================
+         * 右クリックメニュー
+         * ============================================================
+         */
+        private void CreateResultContextMenu()
+        {
+            resultContextMenu =
+                new ContextMenuStrip();
+
+            AddFontMenu(
+                8.0f,
+                "8 px");
+
+            AddFontMenu(
+                10.0f,
+                "10 px");
+
+            AddFontMenu(
+                14.0f,
+                "14 px");
+
+            AddFontMenu(
+                20.0f,
+                "20 px");
+
+            txtResult.ContextMenuStrip =
+                resultContextMenu;
+        }
+
+        /*
+         * ============================================================
+         * フォントメニュー
+         * ============================================================
+         */
+        private void AddFontMenu(
+            float size,
+            string text)
+        {
+            ToolStripMenuItem item =
+                new ToolStripMenuItem(
+                    text);
+
+            item.Click +=
+                delegate
+                {
+                    SetResultFontSize(
+                        size);
+                };
+
+            resultContextMenu.Items.Add(
+                item);
+        }
+
+        /*
+         * ============================================================
+         * フォント変更
+         * ============================================================
+         */
+        private void SetResultFontSize(
+            float size)
+        {
+            resultFontSize =
+                size;
+
+            txtResult.Font =
+                new Font(
+                    txtResult.Font.FontFamily,
+                    resultFontSize,
+                    txtResult.Font.Style);
+        }
+
+        /*
+         * ============================================================
+         * Font
+         * ============================================================
+         */
+        private Font CreateFont(
+            float size)
+        {
+            return new Font(
+                "MS Gothic",
+                size);
+        }
+
+        /*
+         * ============================================================
+         * 勝率
+         * ============================================================
+         */
+        private double CalculateWinRate(
+            int wins,
+            int losses)
+        {
+            int total =
+                wins +
+                losses;
+
+            if (total <= 0)
+            {
+                return 0.0;
+            }
+
+            return
+                wins *
+                100.0 /
+                total;
+        }
+
+        /*
+         * ============================================================
+         * 勝率表示
+         * ============================================================
+         */
+        private string FormatRate(
+            double rate)
+        {
+            return
+                rate.ToString(
+                    "0.0") +
+                "%";
+        }
+
+        /*
+         * ============================================================
          * 戦績行
-         * --------------------------------
+         * ============================================================
+         *
+         * GitHub v0.0.2の形式をベースにする。
+         *
+         * 例：
+         *
+         * 過去30戦   ：     30戦     20勝     10敗 (66.7%)
+         *
+         * 「戦」「勝」「負」の位置を
+         * PadLeftで揃える。
          */
         private string FormatRecordLine(
             string label,
@@ -1507,13 +1833,16 @@ namespace th123OpponentInfoViewer
                     spaceCount) +
                 "：" +
                 " " +
-                total.ToString()
+                total
+                    .ToString()
                     .PadLeft(6) +
                 "戦 " +
-                wins.ToString()
+                wins
+                    .ToString()
                     .PadLeft(6) +
                 "勝 " +
-                losses.ToString()
+                losses
+                    .ToString()
                     .PadLeft(6) +
                 "敗 (" +
                 FormatRate(
@@ -1522,9 +1851,22 @@ namespace th123OpponentInfoViewer
         }
 
         /*
-         * --------------------------------
+         * ============================================================
          * キャラクター行
-         * --------------------------------
+         * ============================================================
+         *
+         * キャラクター名の後ろに
+         *
+         *   6 - キャラクター名の文字数
+         *
+         * 個の全角スペースを入れる。
+         *
+         * これで「：」の位置を揃える。
+         *
+         * 戦績は自分視点。
+         *
+         *   P2 Losses → 自分の勝ち
+         *   P2 Wins   → 自分の負け
          */
         private string FormatCharacterLine(
             string characterName,
@@ -1542,6 +1884,12 @@ namespace th123OpponentInfoViewer
                     '　',
                     fullWidthPadding);
 
+            int selfWins =
+                stats.Wins;
+
+            int selfLosses =
+                stats.Losses;
+
             return
                 name +
                 "：" +
@@ -1550,90 +1898,72 @@ namespace th123OpponentInfoViewer
                     .ToString()
                     .PadLeft(6) +
                 "戦 " +
-                stats.Losses
+                selfWins
                     .ToString()
                     .PadLeft(6) +
                 "勝 " +
-                stats.Wins
+                selfLosses
                     .ToString()
                     .PadLeft(6) +
                 "敗";
         }
 
         /*
-         * --------------------------------
-         * P2視点の勝率
-         * --------------------------------
-         */
-        private double CalculateP2WinRate(
-            TskCharacterStats stats)
-        {
-            if (stats.Matches <= 0)
-            {
-                return 0.0;
-            }
-
-            return
-                stats.Wins *
-                100.0 /
-                stats.Matches;
-        }
-
-        /*
-         * --------------------------------
-         * 勝率計算
-         * --------------------------------
-         */
-        private double CalculateWinRate(
-            int wins,
-            int losses)
-        {
-            int total =
-                wins +
-                losses;
-
-            if (total <= 0)
-            {
-                return 0.0;
-            }
-
-            return
-                wins *
-                100.0 /
-                total;
-        }
-
-        /*
-         * --------------------------------
-         * 勝率表示
-         * --------------------------------
-         */
-        private string FormatRate(
-            double rate)
-        {
-            return
-                rate.ToString(
-                    "0.0") +
-                "%";
-        }
-
-        /*
-         * --------------------------------
-         * 日時
-         * --------------------------------
+         * ============================================================
+         * 日付
+         * ============================================================
          */
         private string FormatDate(
             DateTime dateTime)
         {
             return
-                dateTime.ToString(
-                    "yyyy/MM/dd HH:mm:ss");
+                dateTime
+                    .AddHours(-9)
+                    .ToString(
+                        "yyyy/MM/dd HH:mm:ss");
         }
 
         /*
-         * --------------------------------
+         * ============================================================
+         * プロファイルヘッダー
+         * ============================================================
+         */
+        private string CreateProfileHeader(
+            List<string> profileNames)
+        {
+            string text =
+                "プロファイル：";
+
+            if (profileNames == null ||
+                profileNames.Count == 0)
+            {
+                return text +
+                    "---\r\n";
+            }
+
+            text +=
+                profileNames[0] +
+                "\r\n";
+
+            for (int i = 1;
+                 i < profileNames.Count;
+                 i++)
+            {
+                text +=
+                    new string(
+                        ' ',
+                        13) +
+                    profileNames[i] +
+                    "\r\n";
+            }
+
+            return text;
+        }
+
+        /*
+         * ============================================================
          * キャラクター名
-         * --------------------------------
+         * ============================================================
          */
         private string GetCharacterName(
             int characterId)
@@ -1707,5 +2037,171 @@ namespace th123OpponentInfoViewer
                         ")";
             }
         }
+
+        /*
+         * ============================================================
+         * 検索項目
+         * ============================================================
+         */
+        private class SearchPlayerItem
+        {
+            /*
+             * 左リストに表示する名前。
+             */
+            public string DisplayName
+            {
+                get;
+                set;
+            }
+
+            /*
+             * Default.db側から来たプロファイル。
+             *
+             * 未登録プレイヤーの場合はこれを
+             * 戦績対象として使用する。
+             */
+            public string ProfileName
+            {
+                get;
+                set;
+            }
+
+            /*
+             * プレイヤーが持つ全プロファイル。
+             *
+             * 検索対象にもなる。
+             */
+            public List<string> Profiles
+            {
+                get;
+                set;
+            }
+
+            /*
+             * CPdbのプレイヤー。
+             *
+             * 未登録の場合はnull。
+             */
+            public CombinedPlayer Player
+            {
+                get;
+                set;
+            }
+
+            /*
+             * --------------------------------------------------------
+             * 検索一致
+             * --------------------------------------------------------
+             *
+             * 例えば、
+             *
+             * プレイヤー名：
+             *   あいうえお
+             *
+             * プロファイル：
+             *   かきくけこ
+             *   さしすせそ
+             *
+             * の場合、
+             *
+             *   いう
+             *   くけこ
+             *   さ
+             *
+             * などでこのプレイヤーが検索結果に残る。
+             */
+            public bool Matches(
+                string keyword)
+            {
+                if (string.IsNullOrWhiteSpace(
+                    keyword))
+                {
+                    return true;
+                }
+
+                /*
+                 * プレイヤー名。
+                 */
+                if (!string.IsNullOrWhiteSpace(
+                    DisplayName))
+                {
+                    if (DisplayName.IndexOf(
+                        keyword,
+                        StringComparison.OrdinalIgnoreCase) >=
+                        0)
+                    {
+                        return true;
+                    }
+                }
+
+                /*
+                 * 所属プロファイル全て。
+                 */
+                if (Profiles != null)
+                {
+                    foreach (string profile
+                        in Profiles)
+                    {
+                        if (string.IsNullOrWhiteSpace(
+                            profile))
+                        {
+                            continue;
+                        }
+
+                        if (profile.IndexOf(
+                            keyword,
+                            StringComparison.OrdinalIgnoreCase) >=
+                            0)
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            public override string ToString()
+            {
+                return DisplayName;
+            }
+        }
+
+        /*
+         * ============================================================
+         * 終了処理
+         * ============================================================
+         */
+        protected override void OnFormClosed(
+            FormClosedEventArgs e)
+        {
+            try
+            {
+                if (lstPlayers != null)
+                {
+                    lstPlayers.SelectedIndexChanged -=
+                        LstPlayers_SelectedIndexChanged;
+                }
+
+                if (txtSearch != null)
+                {
+                    txtSearch.TextChanged -=
+                        TxtSearch_TextChanged;
+                }
+
+                if (chkRepresentativeOnly != null)
+                {
+                    chkRepresentativeOnly.CheckedChanged -=
+                        ChkRepresentativeOnly_CheckedChanged;
+                }
+            }
+            catch
+            {
+            }
+
+            base.OnFormClosed(
+                e);
+        }
     }
+
 }
