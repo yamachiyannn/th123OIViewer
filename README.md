@@ -116,6 +116,18 @@ Windows 11（多分10でもいけるはずですが未確認）
 
 本ツールの使用によって生じたいかなる損害等についても製作者は責任を負いません
 
+【For GitHub】---
+Releasesに入っているzipファイルにはiniファイルが入ってますが、
+その版は自動ビルドしたものではありません（tag v0.1.1）
+
+心配でならない人はソースコードを確認してください
+自動ビルドされたzipファイルはActionsからDLできます（version 0.1.1 update #8）
+内容は同じはずです
+th123OpponentInfoViewer.iniはGitHub上でここにあります:
+th123OIViewer/settings/th123OpponentInfoViewer.ini
+iniファイルはDLしたらexeファイルと同じフォルダに入れてください
+
+---
 
 
 用法・用量を守ってなんとなくお使いください
