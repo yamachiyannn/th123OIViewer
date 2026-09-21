@@ -39,6 +39,26 @@ namespace th123OpponentInfoViewer
         private uint currentSceneId;
 
         /*
+         * Overlay表示設定。
+         * OFFのときは通常表示をしない。
+         * ただしtsk未起動警告だけは例外として表示する。
+         */
+        private bool overlayEnabled = true;
+
+        private bool tskRunning = true;
+
+        private bool tskWarningFlashState;
+
+        private DateTime lastTskWarningFlash =
+            DateTime.MinValue;
+
+        private readonly Color normalBackColor =
+            Color.Black;
+
+        private readonly Color normalForeColor =
+            Color.White;
+
+        /*
          * 天則の基準解像度。
          *
          * 天則のゲーム画面は4:3。
@@ -288,10 +308,24 @@ namespace th123OpponentInfoViewer
             positionTimer.Tick +=
                 delegate
                 {
-                    if (Visible)
+                    if (!Visible)
                     {
-                        SetGameAreaPosition();
+                        return;
                     }
+
+                    if (!tskRunning)
+                    {
+                        ShowTskNotRunningWarning();
+                        return;
+                    }
+
+                    if (!overlayEnabled)
+                    {
+                        HideOverlay();
+                        return;
+                    }
+
+                    SetGameAreaPosition();
                 };
 
             positionTimer.Start();
@@ -360,6 +394,87 @@ namespace th123OpponentInfoViewer
 
         /*
          * --------------------------------
+         * Overlay表示設定
+         * --------------------------------
+         */
+        public void SetOverlayEnabled(
+            bool enabled)
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke(
+                    new Action(
+                        delegate
+                        {
+                            SetOverlayEnabled(
+                                enabled);
+                        }));
+
+                return;
+            }
+
+            overlayEnabled =
+                enabled;
+
+            if (!overlayEnabled &&
+                tskRunning)
+            {
+                HideOverlay();
+                return;
+            }
+
+            if (!tskRunning)
+            {
+                ShowTskNotRunningWarning();
+            }
+        }
+
+        /*
+         * --------------------------------
+         * tsk起動状態更新
+         * --------------------------------
+         *
+         * tsk未起動だけはOverlay OFFでも
+         * 特例として警告表示する。
+         */
+        public void SetTskRunning(
+            bool running)
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke(
+                    new Action(
+                        delegate
+                        {
+                            SetTskRunning(
+                                running);
+                        }));
+
+                return;
+            }
+
+            tskRunning =
+                running;
+
+            if (!tskRunning)
+            {
+                ShowTskNotRunningWarning();
+                return;
+            }
+
+            lastTskWarningFlash =
+                DateTime.MinValue;
+
+            tskWarningFlashState =
+                false;
+
+            RestoreNormalColors();
+
+            HideOverlay();
+        }
+
+        /*
+         * --------------------------------
          * SceneID + テキスト更新
          * --------------------------------
          */
@@ -384,6 +499,25 @@ namespace th123OpponentInfoViewer
             currentSceneId =
                 sceneId;
 
+            /*
+             * tsk未起動はOverlay OFFでも
+             * 警告表示する特例。
+             */
+            if (!tskRunning)
+            {
+                ShowTskNotRunningWarning();
+                return;
+            }
+
+            /*
+             * Overlay OFFなら通常表示しない。
+             */
+            if (!overlayEnabled)
+            {
+                HideOverlay();
+                return;
+            }
+
             if (!IsOverlayScene(
                 sceneId))
             {
@@ -391,27 +525,25 @@ namespace th123OpponentInfoViewer
                 return;
             }
 
-            /*
-             * 通常表示。
-             */
             lblText.Text =
                 text ?? "";
 
+            lblText.BackColor =
+                Color.Transparent;
+
+            lblText.ForeColor =
+                overlayForeColor;
+
+            BackColor =
+                overlayBackColor;
+
+            ForeColor =
+                overlayForeColor;
+
             ResizeToContent();
 
-            /*
-             * ゲーム表示領域へ移動。
-             */
             if (!SetGameAreaPosition())
             {
-                /*
-                 * 天則ウィンドウがまだ見つからない場合。
-                 *
-                 * とりあえず非表示。
-                 *
-                 * これで画面の変な場所に
-                 * オーバーレイが出るのを防ぐ。
-                 */
                 HideOverlay();
                 return;
             }
@@ -420,10 +552,6 @@ namespace th123OpponentInfoViewer
             {
                 Show();
             }
-
-            /*
-             * Activateしない。
-             */
         }
 
         /*
@@ -443,6 +571,200 @@ namespace th123OpponentInfoViewer
             }
 
             Hide();
+        }
+
+        /*
+         * --------------------------------
+         * tsk.exe未起動警告
+         * --------------------------------
+         *
+         * Form1.csと同じく、500msごとに
+         * 赤 / 黄を切り替える。
+         */
+        private void ShowTskNotRunningWarning()
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke(
+                    new Action(
+                        ShowTskNotRunningWarning));
+
+                return;
+            }
+
+            DateTime now =
+                DateTime.Now;
+
+            if (lastTskWarningFlash ==
+                DateTime.MinValue)
+            {
+                tskWarningFlashState =
+                    false;
+
+                lastTskWarningFlash =
+                    now;
+            }
+
+            if ((now -
+                 lastTskWarningFlash).TotalMilliseconds >=
+                500)
+            {
+                tskWarningFlashState =
+                    !tskWarningFlashState;
+
+                lastTskWarningFlash =
+                    now;
+            }
+
+            if (tskWarningFlashState)
+            {
+                BackColor =
+                    Color.Yellow;
+
+                ForeColor =
+                    Color.Black;
+
+                lblText.BackColor =
+                    Color.Yellow;
+
+                lblText.ForeColor =
+                    Color.Black;
+            }
+            else
+            {
+                BackColor =
+                    Color.Red;
+
+                ForeColor =
+                    Color.White;
+
+                lblText.BackColor =
+                    Color.Red;
+
+                lblText.ForeColor =
+                    Color.White;
+            }
+
+            lblText.Text =
+                "【警告】\r\n\r\n" +
+                "天則観（tsk.exe）が検知できません。\r\n\r\n" +
+                "tsk.exeを起動してください。";
+
+            ResizeToContent();
+
+            if (!SetWarningPosition())
+            {
+                Location =
+                    new Point(10, 10);
+            }
+
+            if (!Visible)
+            {
+                Show();
+            }
+        }
+
+        private bool SetWarningPosition()
+        {
+            Process process =
+                FindGameProcess();
+
+            if (process != null)
+            {
+                try
+                {
+                    RECT rect;
+
+                    if (GetWindowRect(
+                        process.MainWindowHandle,
+                        out rect))
+                    {
+                        Rectangle windowRect =
+                            Rectangle.FromLTRB(
+                                rect.Left,
+                                rect.Top,
+                                rect.Right,
+                                rect.Bottom);
+
+                        Rectangle gameRect =
+                            GetGameDisplayRectangle(
+                                windowRect);
+
+                        if (gameRect.Width > 0 &&
+                            gameRect.Height > 0)
+                        {
+                            Location =
+                                new Point(
+                                    gameRect.Left + 3,
+                                    gameRect.Top + 10);
+
+                            SetWindowPos(
+                                Handle,
+                                HWND_TOPMOST,
+                                Location.X,
+                                Location.Y,
+                                Width,
+                                Height,
+                                SWP_NOACTIVATE |
+                                SWP_SHOWWINDOW);
+
+                            return true;
+                        }
+                    }
+                }
+                catch
+                {
+                }
+                finally
+                {
+                    process.Dispose();
+                }
+            }
+
+            try
+            {
+                Rectangle workingArea =
+                    Screen.PrimaryScreen.WorkingArea;
+
+                Location =
+                    new Point(
+                        workingArea.Left + 10,
+                        workingArea.Top + 10);
+
+                SetWindowPos(
+                    Handle,
+                    HWND_TOPMOST,
+                    Location.X,
+                    Location.Y,
+                    Width,
+                    Height,
+                    SWP_NOACTIVATE |
+                    SWP_SHOWWINDOW);
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void RestoreNormalColors()
+        {
+            BackColor =
+                normalBackColor;
+
+            ForeColor =
+                normalForeColor;
+
+            if (lblText != null)
+            {
+                lblText.BackColor =
+                    Color.Transparent;
+
+                lblText.ForeColor =
+                    normalForeColor;
+            }
         }
 
         /*
@@ -774,3 +1096,4 @@ namespace th123OpponentInfoViewer
         }
     }
 }
+

@@ -52,6 +52,8 @@ namespace th123OpponentInfoViewer
     */
     public class ProfileSearchForm : Form
     {
+        private static ProfileSearchForm activeDetailForm;
+        private string detailPlayerName = "";
         /*
         * --------------------------------------------------------
         * DB
@@ -62,6 +64,8 @@ namespace th123OpponentInfoViewer
         private readonly CombinedPlayersDatabase combinedDatabase;
 
         private readonly ViewerConfig config;
+
+        private readonly IpHistoryManager ipHistoryManager;
 
         /*
          * --------------------------------------------------------
@@ -74,9 +78,13 @@ namespace th123OpponentInfoViewer
 
         private CheckBox chkRepresentativeOnly;
 
+        private Panel resultPanel;
+
         private TextBox txtResult;
 
         private ContextMenuStrip resultContextMenu;
+
+        private bool detailOnly;
 
         /*
          * --------------------------------------------------------
@@ -124,10 +132,22 @@ namespace th123OpponentInfoViewer
 
         private bool updatingList;
 
+        private List<string> currentDisplayedProfiles =
+            new List<string>();
+
         /*
          * ============================================================
          * コンストラクタ
          * ============================================================
+         */
+
+        /*
+         * ============================================================
+         * 通常のプレイヤー検索画面
+         * ============================================================
+         *
+         * Form1.csから呼ばれる2引数コンストラクタ。
+         * 検索画面のUIを初期化してからデータを読み込む。
          */
         public ProfileSearchForm(
             TskDatabaseReader database,
@@ -154,15 +174,243 @@ namespace th123OpponentInfoViewer
             config =
                 new ViewerConfig();
 
+            ipHistoryManager =
+                new IpHistoryManager();
+
             resultFontSize =
                 config.ProfileSearchFontSize;
 
             listFontSize =
                 config.ProfileSearchFontSize;
 
+            detailOnly =
+                false;
+
+            detailPlayerName =
+                "";
+
             InitializeForm();
 
             LoadData();
+        }
+
+        private static void CloseExistingDetailForm()
+        {
+            if (activeDetailForm == null)
+            {
+                return;
+            }
+
+            try
+            {
+                if (!activeDetailForm.IsDisposed)
+                {
+                    activeDetailForm.Close();
+                }
+            }
+            catch
+            {
+            }
+
+            activeDetailForm =
+                null;
+        }
+
+        /*
+         * ------------------------------------------------------------
+         * プレイヤー表から開く詳細専用画面。
+         * ------------------------------------------------------------
+         *
+         * プレイヤー検索の右側詳細と同じShowProfiles()を使用する。
+         * 上部の代表プロファイル表示なども同じ内容になる。
+         */
+        public ProfileSearchForm(
+            TskDatabaseReader database,
+            CombinedPlayersDatabase combinedDatabase,
+            string displayName,
+            IEnumerable<string> profileNames)
+        {
+            CloseExistingDetailForm();
+
+            if (database == null)
+            {
+                throw new ArgumentNullException(
+                    "database");
+            }
+
+            if (combinedDatabase == null)
+            {
+                throw new ArgumentNullException(
+                    "combinedDatabase");
+            }
+
+            this.database =
+                database;
+
+            this.combinedDatabase =
+                combinedDatabase;
+
+            config =
+                new ViewerConfig();
+
+            ipHistoryManager =
+                new IpHistoryManager();
+
+            resultFontSize =
+                config.ProfileSearchFontSize;
+
+            listFontSize =
+                config.ProfileSearchFontSize;
+
+            detailOnly =
+                true;
+
+            detailPlayerName =
+                displayName ?? "";
+
+            currentDisplayedProfiles =
+                profileNames == null
+                    ? new List<string>()
+                    : profileNames
+                        .Where(
+                            x =>
+                                !string.IsNullOrWhiteSpace(x))
+                        .Distinct(
+                            StringComparer.Ordinal)
+                        .ToList();
+
+            InitializeDetailOnlyForm();
+
+            activeDetailForm =
+                this;
+
+            ShowProfiles(
+                displayName,
+                currentDisplayedProfiles);
+        }
+
+        /*
+         * ============================================================
+         * 詳細専用フォーム初期化
+         * ============================================================
+         */
+        private void InitializeDetailOnlyForm()
+        {
+            Text =
+                "プレイヤー詳細";
+
+            StartPosition =
+                FormStartPosition.CenterScreen;
+
+            ClientSize =
+                new Size(520, 480);
+
+            MinimumSize =
+                new Size(520, 480);
+
+            Font =
+                new Font(
+                    "MS Gothic",
+                    9.0f);
+
+            CreateResultArea(
+                15,
+                15,
+                ClientSize.Width - 30,
+                ClientSize.Height - 30);
+
+            CreateResultContextMenu();
+        }
+
+        /*
+         * ============================================================
+         * 結果表示エリア作成
+         * ============================================================
+         *
+         * IP:Portボタンは置かず、
+         * txtResultの右クリックメニューから最新IPをコピーする。
+         */
+        private void CreateResultArea(
+            int left,
+            int top,
+            int width,
+            int height)
+        {
+            /*
+             * 結果欄はv0.1.1の位置へ戻す。
+             * IP:Portボタンは置かず、
+             * txtResultそのものの右クリックメニューから
+             * 「最新IPをコピー」を使用する。
+             */
+            resultPanel =
+                new Panel();
+
+            resultPanel.Location =
+                new Point(
+                    left,
+                    top);
+
+            resultPanel.Size =
+                new Size(
+                    Math.Max(
+                        120,
+                        width),
+                    Math.Max(
+                        120,
+                        height));
+
+            resultPanel.Anchor =
+                AnchorStyles.Top |
+                AnchorStyles.Bottom |
+                AnchorStyles.Left |
+                AnchorStyles.Right;
+
+            resultPanel.BackColor =
+                Color.White;
+
+            txtResult =
+                new TextBox();
+
+            txtResult.Location =
+                new Point(
+                    0,
+                    0);
+
+            txtResult.Size =
+                new Size(
+                    resultPanel.ClientSize.Width,
+                    resultPanel.ClientSize.Height);
+
+            txtResult.Anchor =
+                AnchorStyles.Top |
+                AnchorStyles.Bottom |
+                AnchorStyles.Left |
+                AnchorStyles.Right;
+
+            txtResult.Multiline =
+                true;
+
+            txtResult.ReadOnly =
+                true;
+
+            txtResult.ScrollBars =
+                ScrollBars.Both;
+
+            txtResult.WordWrap =
+                false;
+
+            txtResult.BackColor =
+                Color.White;
+
+            txtResult.Font =
+                CreateFont(
+                    resultFontSize);
+
+            resultPanel.Controls.Add(
+                txtResult);
+
+            Controls.Add(
+                resultPanel);
         }
 
         /*
@@ -339,54 +587,15 @@ namespace th123OpponentInfoViewer
              * 右側：結果表示
              * ============================================================
              */
-            txtResult =
-                new TextBox();
-
-            txtResult.Location =
-                new Point(
-                    RESULT_LEFT,
-                    RESULT_TOP);
-
-            txtResult.Size =
-                new Size(
-                    Math.Max(
-                        100,
-                        ClientSize.Width -
-                        RESULT_LEFT -
-                        BOTTOM_MARGIN),
-                    Math.Max(
-                        100,
-                        ClientSize.Height -
-                        RESULT_TOP -
-                        BOTTOM_MARGIN));
-
-            txtResult.Anchor =
-                AnchorStyles.Top |
-                AnchorStyles.Bottom |
-                AnchorStyles.Left |
-                AnchorStyles.Right;
-
-            txtResult.Multiline =
-                true;
-
-            txtResult.ReadOnly =
-                true;
-
-            txtResult.ScrollBars =
-                ScrollBars.Both;
-
-            txtResult.WordWrap =
-                false;
-
-            txtResult.BackColor =
-                Color.White;
-
-            txtResult.Font =
-                CreateFont(
-                    resultFontSize);
-
-            Controls.Add(
-                txtResult);
+            CreateResultArea(
+                RESULT_LEFT,
+                RESULT_TOP,
+                Math.Max(
+                    120,
+                    ClientSize.Width - RESULT_LEFT - BOTTOM_MARGIN),
+                Math.Max(
+                    120,
+                    ClientSize.Height - RESULT_TOP - BOTTOM_MARGIN));
 
             /*
              * ============================================================
@@ -417,6 +626,11 @@ namespace th123OpponentInfoViewer
                 return;
             }
 
+            if (detailOnly)
+            {
+                return;
+            }
+
             if (lstPlayers != null)
             {
                 lstPlayers.Height =
@@ -427,18 +641,18 @@ namespace th123OpponentInfoViewer
                         BOTTOM_MARGIN);
             }
 
-            if (txtResult != null)
+            if (resultPanel != null)
             {
-                txtResult.Width =
+                resultPanel.Width =
                     Math.Max(
-                        100,
+                        120,
                         ClientSize.Width -
                         RESULT_LEFT -
                         BOTTOM_MARGIN);
 
-                txtResult.Height =
+                resultPanel.Height =
                     Math.Max(
-                        100,
+                        120,
                         ClientSize.Height -
                         RESULT_TOP -
                         BOTTOM_MARGIN);
@@ -454,9 +668,28 @@ namespace th123OpponentInfoViewer
         {
             try
             {
+                /*
+                 * ------------------------------------------------
+                 * Default.dbからプロファイル取得
+                 * ------------------------------------------------
+                 */
+                if (database == null)
+                {
+                    throw new InvalidOperationException(
+                        "TskDatabaseReader が初期化されていません。");
+                }
+
+                List<string> profileNames =
+                    database.GetP2ProfileNames();
+
+                if (profileNames == null)
+                {
+                    profileNames =
+                        new List<string>();
+                }
+
                 allProfileNames =
-                    database
-                        .GetP2ProfileNames()
+                    profileNames
                         .Where(
                             x =>
                                 !string.IsNullOrWhiteSpace(
@@ -468,21 +701,58 @@ namespace th123OpponentInfoViewer
                             StringComparer.CurrentCulture)
                         .ToList();
 
-                allPlayers =
-                    combinedDatabase
-                        .GetPlayers();
+                /*
+                 * ------------------------------------------------
+                 * CombinedPlayers.dbからプレイヤー取得
+                 * ------------------------------------------------
+                 */
+                if (combinedDatabase == null)
+                {
+                    throw new InvalidOperationException(
+                        "CombinedPlayersDatabase が初期化されていません。");
+                }
 
+                List<CombinedPlayer> players =
+                    combinedDatabase.GetPlayers();
+
+                if (players == null)
+                {
+                    players =
+                        new List<CombinedPlayer>();
+                }
+
+                allPlayers =
+                    players;
+
+                /*
+                 * ------------------------------------------------
+                 * 検索項目作成
+                 * ------------------------------------------------
+                 */
                 BuildSearchItems();
 
+                /*
+                 * ------------------------------------------------
+                 * 左側リスト更新
+                 * ------------------------------------------------
+                 */
                 RefreshSearchList();
 
-                txtResult.Clear();
+                /*
+                 * ------------------------------------------------
+                 * 右側結果を初期化
+                 * ------------------------------------------------
+                 */
+                if (txtResult != null)
+                {
+                    txtResult.Clear();
+                }
             }
             catch (Exception ex)
             {
                 MessageBox.Show(
                     "プレイヤー検索の読み込みに失敗しました。\r\n\r\n" +
-                    ex.Message,
+                    ex.ToString(),
                     "エラー",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
@@ -946,8 +1216,8 @@ namespace th123OpponentInfoViewer
                     }
                 }
 
-                
-                
+
+
                 profiles =
                     profiles
                         .Where(
@@ -1037,6 +1307,11 @@ namespace th123OpponentInfoViewer
         {
             try
             {
+                currentDisplayedProfiles =
+                    profileNames == null
+                        ? new List<string>()
+                        : new List<string>(
+                            profileNames);
                 int totalMatches = 0;
 
                 // 自分視点
@@ -1303,6 +1578,10 @@ namespace th123OpponentInfoViewer
                     noRecordText +=
                         "\r\n\r\n" +
                         "対戦記録がありません。";
+
+                    noRecordText +=
+                        BuildIpHistoryText(
+                            profileNames);
 
                     txtResult.Text =
                         noRecordText;
@@ -1598,6 +1877,10 @@ namespace th123OpponentInfoViewer
                         "相手勝率 : ---";
                 }
 
+                text +=
+                    BuildIpHistoryText(
+                        profileNames);
+
                 txtResult.Text =
                     text;
             }
@@ -1700,8 +1983,126 @@ namespace th123OpponentInfoViewer
                 20.0f,
                 "20 px");
 
+            resultContextMenu.Items.Add(
+                new ToolStripSeparator());
+
+            ToolStripMenuItem copyLatestIp =
+                new ToolStripMenuItem(
+                    "最新IPをコピー");
+
+            copyLatestIp.Click +=
+                delegate
+                {
+                    CopyLatestIp();
+                };
+
+            resultContextMenu.Items.Add(
+                copyLatestIp);
+
             txtResult.ContextMenuStrip =
                 resultContextMenu;
+        }
+
+        /*
+         * ============================================================
+         * IP履歴表示
+         * ============================================================
+         */
+        private string BuildIpHistoryText(
+            List<string> profileNames)
+        {
+            List<IpHistoryEntry> history =
+                ipHistoryManager.GetHistory(
+                    profileNames);
+
+            string text =
+                "\r\n\r\n【IP履歴】\r\n";
+
+            if (history.Count == 0)
+            {
+                text +=
+                    "記録なし\r\n";
+
+                return text;
+            }
+
+            /*
+             * プレイヤーに属する全プロファイルをまとめ、
+             * 同じIP/クリップボード内容は1件だけ表示。
+             * 新しい記録が先頭。
+             *
+             * IP周辺ではプロファイル名は表示しない。
+             * 日時も日付だけ表示する。
+             */
+            foreach (IpHistoryEntry entry in history)
+            {
+                text +=
+                    "  " +
+                    entry.ClipboardText +
+                    "  [" +
+                    entry.Timestamp.ToString(
+                        "yyyy/MM/dd") +
+                    "]\r\n";
+            }
+
+            return text;
+        }
+
+        /*
+         * 最新IPをクリップボードへコピー。
+         */
+        private void CopyLatestIp()
+        {
+            try
+            {
+                string latestIp =
+                    ipHistoryManager.GetLatestIp(
+                        currentDisplayedProfiles);
+
+                if (string.IsNullOrWhiteSpace(
+                    latestIp))
+                {
+                    MessageBox.Show(
+                        "このプレイヤーにはIP履歴がありません。",
+                        "IP履歴",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+
+                    return;
+                }
+
+                Clipboard.SetText(
+                    latestIp);
+
+                if (detailOnly)
+                {
+                    Close();
+
+                    MessageBox.Show(
+                        detailPlayerName +
+                        "の最後に記録されたIPをコピーしました。",
+                        "IPコピー",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                }
+                else
+                {
+                    MessageBox.Show(
+                        "最後に記録されたIPをコピーしました。",
+                        "IPコピー",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "IPのコピーに失敗しました。\r\n\r\n" +
+                    ex.Message,
+                    "エラー",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
         }
 
         /*
@@ -2177,6 +2578,11 @@ namespace th123OpponentInfoViewer
         {
             try
             {
+                if (activeDetailForm == this)
+                {
+                    activeDetailForm = null;
+                }
+
                 if (lstPlayers != null)
                 {
                     lstPlayers.SelectedIndexChanged -=
@@ -2205,3 +2611,4 @@ namespace th123OpponentInfoViewer
     }
 
 }
+

@@ -1,4 +1,4 @@
-﻿using System;
+﻿﻿using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -15,6 +15,13 @@ namespace th123OpponentInfoViewer
         private readonly ViewerConfig config;
 
         private readonly TskDatabaseReader tskDatabase;
+
+        /*
+         * --------------------------------
+         * IP履歴
+         * --------------------------------
+         */
+        private readonly IpHistoryManager ipHistoryManager;
 
         /*
          * --------------------------------
@@ -178,6 +185,9 @@ namespace th123OpponentInfoViewer
             config =
                 new ViewerConfig();
 
+            ipHistoryManager =
+                new IpHistoryManager();
+
             /*
              * ウィンドウタイトル。
              */
@@ -264,6 +274,9 @@ namespace th123OpponentInfoViewer
              */
             overlayForm =
                 new OverlayForm();
+
+            overlayForm.SetOverlayEnabled(
+                overlayEnabled);
 
             /*
              * --------------------------------
@@ -654,11 +667,16 @@ namespace th123OpponentInfoViewer
                     overlayMenu.Checked =
                         overlayEnabled;
 
+                    overlayForm.SetOverlayEnabled(
+                        overlayEnabled);
+
                     /*
-                     * OFFにした場合は
-                     * 現在表示中のOverlayを隠す。
+                     * OFF時は通常表示を隠す。
+                     * ただしtsk.exe未起動中だけは、
+                     * OverlayForm側の特例警告を残す。
                      */
-                    if (!overlayEnabled)
+                    if (!overlayEnabled &&
+                        IsTskRunning())
                     {
                         HideOverlay();
                     }
@@ -705,6 +723,24 @@ namespace th123OpponentInfoViewer
 
             menu.Items.Add(
                 searchPlayer);
+
+            /*
+             * --------------------------------
+             * プレイヤー表
+             * --------------------------------
+             */
+            ToolStripMenuItem playerStatistics =
+                new ToolStripMenuItem(
+                    "プレイヤー表");
+
+            playerStatistics.Click +=
+                delegate
+                {
+                    OpenPlayerStatistics();
+                };
+
+            menu.Items.Add(
+                playerStatistics);
 
             /*
              * --------------------------------
@@ -781,6 +817,33 @@ namespace th123OpponentInfoViewer
             {
                 MessageBox.Show(
                     "プレイヤー検索を開けませんでした。\r\n\r\n" +
+                    ex.Message,
+                    "エラー",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+        }
+
+        /*
+         * --------------------------------
+         * プレイヤー情報画面
+         * --------------------------------
+         */
+        private void OpenPlayerStatistics()
+        {
+            try
+            {
+                PlayerStatisticsForm form =
+                    new PlayerStatisticsForm(
+                        tskDatabase,
+                        combinedPlayersDatabase);
+
+                form.Show(this);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "プレイヤー表を開けませんでした。\r\n\r\n" +
                     ex.Message,
                     "エラー",
                     MessageBoxButtons.OK,
@@ -1042,10 +1105,18 @@ namespace th123OpponentInfoViewer
                 ShowTskNotRunningWarning();
 
                 /*
-                 * tskが落ちた場合は
-                 * Overlayも非表示。
+                 * Overlayは、tsk未起動時だけ
+                 * オーバーレイ設定がOFFでも
+                 * 警告を表示する。
                  */
-                HideOverlay();
+                try
+                {
+                    overlayForm.SetTskRunning(
+                        false);
+                }
+                catch
+                {
+                }
 
                 previousSceneId =
                     0;
@@ -1056,6 +1127,15 @@ namespace th123OpponentInfoViewer
             /*
              * tsk.exeが起動している場合。
              */
+            try
+            {
+                overlayForm.SetTskRunning(
+                    true);
+            }
+            catch
+            {
+            }
+
             if (!matchRecordWarning)
             {
                 RestoreNormalColors();
@@ -1167,6 +1247,48 @@ namespace th123OpponentInfoViewer
                 info.SceneId >= 8)
             {
                 txtIpInput.Clear();
+            }
+
+            /*
+             * -------------------------
+             * 接続検知・IP履歴保存
+             * -------------------------
+             *
+             * 「待機中(7以下) → SceneID 9」
+             * の遷移だけを接続イベントとして扱う。
+             */
+            if (previousSceneId <= 7 &&
+                info.SceneId == 9)
+            {
+                string connectionProfile =
+                    info.ProfileName;
+
+                if (string.IsNullOrWhiteSpace(
+                    connectionProfile))
+                {
+                    connectionProfile =
+                        lastOpponentProfileName;
+                }
+
+                string clipboardText =
+                    "";
+
+                try
+                {
+                    if (Clipboard.ContainsText())
+                    {
+                        clipboardText =
+                            Clipboard.GetText();
+                    }
+                }
+                catch
+                {
+                }
+
+                ipHistoryManager.AddConnection(
+                    DateTime.Now,
+                    connectionProfile,
+                    clipboardText);
             }
 
             /*
@@ -2306,3 +2428,4 @@ namespace th123OpponentInfoViewer
         }
     }
 }
+

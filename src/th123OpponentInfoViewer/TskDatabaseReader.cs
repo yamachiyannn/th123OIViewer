@@ -304,6 +304,137 @@ namespace th123OpponentInfoViewer
             }
         }
 
+
+        /*
+         * --------------------------------
+         * 全対戦記録取得
+         * --------------------------------
+         *
+         * プレイヤー情報画面用。
+         * Default.dbはRead Onlyで開く。
+         */
+        public List<TskMatchRecord> GetAllMatchRecords()
+        {
+            List<TskMatchRecord> records =
+                new List<TskMatchRecord>();
+
+            if (!File.Exists(databasePath))
+            {
+                return records;
+            }
+
+            using (SQLiteConnection connection =
+                OpenConnection())
+            {
+                const string sql =
+                    "SELECT " +
+                    "timestamp, " +
+                    "CAST(p1name AS BLOB), " +
+                    "p1id, " +
+                    "p1win, " +
+                    "CAST(p2name AS BLOB), " +
+                    "p2id, " +
+                    "p2win " +
+                    "FROM trackrecord123";
+
+                using (SQLiteCommand command =
+                    new SQLiteCommand(
+                        sql,
+                        connection))
+                {
+                    using (SQLiteDataReader reader =
+                        command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            TskMatchRecord record =
+                                new TskMatchRecord();
+
+                            record.DateTime =
+                                ReadTimestamp(
+                                    reader,
+                                    0);
+
+                            if (record.DateTime ==
+                                DateTime.MinValue)
+                            {
+                                continue;
+                            }
+
+                            record.P1Name =
+                                ReadShiftJisBlob(
+                                    reader,
+                                    1);
+
+                            record.P1CharacterId =
+                                ReadInt(
+                                    reader,
+                                    2);
+
+                            record.P1RoundCount =
+                                ReadInt(
+                                    reader,
+                                    3);
+
+                            record.P2Name =
+                                ReadShiftJisBlob(
+                                    reader,
+                                    4);
+
+                            record.P2CharacterId =
+                                ReadInt(
+                                    reader,
+                                    5);
+
+                            record.P2RoundCount =
+                                ReadInt(
+                                    reader,
+                                    6);
+
+                            if (string.IsNullOrWhiteSpace(
+                                record.P2Name))
+                            {
+                                continue;
+                            }
+
+                            records.Add(
+                                record);
+                        }
+                    }
+                }
+            }
+
+            return records
+                .OrderBy(
+                    x => x.DateTime)
+                .ToList();
+        }
+
+        /*
+         * --------------------------------
+         * 直近N戦取得
+         * --------------------------------
+         *
+         * 直近のN件だけを取得し、
+         * 表示・連続対戦解析用に古い順で返す。
+         */
+        public List<TskMatchRecord> GetRecentMatchRecords(
+            int count)
+        {
+            if (count <= 0)
+            {
+                return new List<TskMatchRecord>();
+            }
+
+            return GetAllMatchRecords()
+                .OrderByDescending(
+                    x => x.DateTime)
+                .Take(count)
+                .OrderBy(
+                    x => x.DateTime)
+                .ToList();
+        }
+
         public int GetMatchCount()
         {
             if (!File.Exists(databasePath))
@@ -1209,3 +1340,4 @@ namespace th123OpponentInfoViewer
         public int Losses { get; set; }
     }
 }
+
